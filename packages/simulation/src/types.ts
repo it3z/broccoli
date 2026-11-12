@@ -69,7 +69,7 @@ export type SimEvent =
   | { type: 'building_captured'; building: number; by: number; from: number }
   | { type: 'building_lost'; building: number; player: number; by: number }
   | { type: 'tower_fired'; tower: number; projectile: number; army: number; owner: number }
-  | { type: 'projectile_hit'; projectile: number; army: number; owner: number; x: number; y: number; kills: number }
+  | { type: 'projectile_hit'; projectile: number; army: number; owner: number; victim: number; x: number; y: number; kills: number }
   | { type: 'army_destroyed'; army: number; owner: number; x: number; y: number }
   | { type: 'order_rejected'; player: number; building: number; reason: 'empty' | 'not_owner' | 'cooldown' | 'invalid' }
   | { type: 'upgrade_started'; building: number }

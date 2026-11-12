@@ -68,7 +68,7 @@ export class AIController {
     const full = (b: Building) => b.garrison >= m.capacity(b) - 1;
     const forgeSite = prof.builds && farms.length >= prof.forgeAtFarms && !has('forge')
       ? idle.filter(full).sort((x, y) => x.level - y.level || front(y) - front(x) || x.id - y.id)[0] : undefined;
-    const towerSite = prof.towers && farms.length >= prof.forgeAtFarms + 1 && has('forge') && !has('tower')
+    const towerSite = prof.towers && farms.length >= prof.forgeAtFarms - 1 && has('forge') && !has('tower')
       ? idle.filter(full).sort((x, y) => x.level - y.level || front(x) - front(y) || x.id - y.id)[0] : undefined;
     // one back-line level-1 farm at a time saves up for level 2 instead of feeding attacks
     const saver = mine.filter(b => b.type === 'farm' && !b.busyKind && b.level < Math.min(2, prof.maxFarmLevel) && !full(b))

@@ -1,7 +1,7 @@
 import { MAPS, type Difficulty, type Match } from '../../../packages/simulation/src/index';
 import { Session, type SessionOpts } from './game';
 import { colorOf } from './render/art';
-import { setSound, sfx, unlockAudio } from './audio/sfx';
+import { setMusic, setSound, sfx, unlockAudio } from './audio/sfx';
 import { getLang, setLang, t, type Lang } from './ui/i18n';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -12,9 +12,12 @@ const store = {
 
 let session: Session | null = null;
 let soundOn = store.get('sound', '1') === '1';
+let musicOn = store.get('music', '1') === '1';
+let lowFx = store.get('fx', 'high') === 'low';
+let howFromPause = false;
 const setup: SessionOpts = {
   mapIndex: Number(store.get('map', '0')) % MAPS.length, opponents: 1,
-  difficulty: store.get('diff', 'normal') as Difficulty, seed: 1,
+  difficulty: store.get('diff', 'normal') as Difficulty, seed: 1, lowFx: false,
 };
 
 function show(id: string | null): void {
@@ -69,6 +72,10 @@ function renderSettings(): void {
     v => { setLang(v as Lang); store.set('lang', v); renderSettings(); });
   seg($('segSound'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], soundOn ? '1' : '0',
     v => { soundOn = v === '1'; setSound(soundOn); store.set('sound', v); renderSettings(); });
+  seg($('segMusic'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], musicOn ? '1' : '0',
+    v => { musicOn = v === '1'; setMusic(musicOn); store.set('music', v); renderSettings(); });
+  seg($('segFx'), [{ v: 'high', label: t('fxHigh') }, { v: 'low', label: t('fxLow') }], lowFx ? 'low' : 'high',
+    v => { lowFx = v === 'low'; store.set('fx', v); renderSettings(); });
 }
 
 function startMatch(): void {
@@ -76,7 +83,7 @@ function startMatch(): void {
   overlay('pause', false); overlay('result', false);
   show(null);
   setup.seed = (Date.now() % 2147483647) | 1;
-  session = new Session({ ...setup }, onEnd);
+  session = new Session({ ...setup, lowFx }, onEnd);
   (window as unknown as { __broccoli: Session }).__broccoli = session;
 }
 
@@ -104,7 +111,7 @@ function toMenu(): void {
 
 function init(): void {
   setLang(store.get('lang', 'ar') as Lang);
-  setSound(soundOn);
+  setSound(soundOn); setMusic(musicOn);
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
   document.addEventListener('click', unlockAudio);
   // iOS Safari: stop pinch-zoom and double-tap zoom from hijacking the battlefield
@@ -113,7 +120,12 @@ function init(): void {
   $('btnSolo').onclick = () => { sfx.tap(); renderSetup(); show('setup'); };
   $('btnHow').onclick = () => { sfx.tap(); show('howto'); };
   $('btnSettings').onclick = () => { sfx.tap(); renderSettings(); show('settings'); };
-  document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => (b.onclick = () => { sfx.tap(); show('menu'); }));
+  document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => (b.onclick = () => {
+    sfx.tap();
+    if (howFromPause) { howFromPause = false; $('howto').classList.remove('on'); return; }   // back to the paused match
+    show('menu');
+  }));
+  $('btnPauseHow').onclick = () => { sfx.tap(); howFromPause = true; $('howto').classList.add('on'); };
   $('btnStart').onclick = startMatch;
 
   $('btnPause').onclick = () => { if (session && session.match.phase === 'playing') { session.paused = true; overlay('pause', true); } };

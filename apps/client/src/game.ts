@@ -1,31 +1,38 @@
 import { AIController, BALANCE, MAPS, Match, type Building, type BuildingType, type Difficulty, type Pct } from '../../../packages/simulation/src/index';
 import { Renderer, colorOf, type BoxState, type DragState } from './render/renderer';
-import { TILT } from './render/art';
+import { VIS } from './render/config';
 import { sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 
-export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number }
+export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ICON: Record<BuildingType, string> = { farm: '🥦', tower: '🗼', forge: '☀️' };
+const MAX_DT = 0.1; // a long frame (tab switch, Safari in background) never advances the match by more than this
 
 /** One running match: fixed-step simulation, AI, touch input, HUD and rendering glue. */
 export class Session {
   readonly match: Match;
   readonly human = 0;
   readonly renderer: Renderer;
+  readonly ais: AIController[] = [];
   selection = new Set<number>();
   pct: Pct = 50;
-  paused = false;
-  private ais: AIController[] = [];
+  autoLow = false;
+  /** Test/dev hooks: let an AI play the human seat, and run several simulation steps per frame. */
+  autopilot: AIController | null = null;
+  speed = 1;
+  stepsRun = 0;
+  private _paused = false;
   private drag: DragState | null = null;
   private box: BoxState | null = null;
-  private raf = 0; private acc = 0; private lastT = 0; private time = 0;
-  private finished = false; private disposed = false;
+  private raf = 0; private acc = 0; private lastT = 0; private time = 0; private slowFor = 0;
+  private finished = false; private disposed = false; private ordered = false;
   private ptr: { id: number; x0: number; y0: number; down: number | null; moved: boolean; long: boolean; timer: number } | null = null;
   private cache = new Map<string, string>();
   private canvas = $<HTMLCanvasElement>('cv');
   private cleanup: (() => void)[] = [];
-  stepsRun = 0;
+  private alerted = new Set<number>(); private lastAlert = -99; private lastHitSfx = 0; private toastTimer = 0;
+  private debug = location.hash === '#debug';
 
   constructor(readonly opts: SessionOpts, private onEnd: (m: Match) => void) {
     const map = MAPS[opts.mapIndex];
@@ -40,24 +47,31 @@ export class Session {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  get paused(): boolean { return this._paused; }
+  set paused(v: boolean) { this._paused = v; this.lastT = 0; this.cancelPointer(); }   // resuming never replays the paused time
+  get lowFx(): boolean { return this.opts.lowFx || this.autoLow; }
+
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.cleanup.forEach(f => f());
+    clearTimeout(this.toastTimer);
     if (this.ptr) clearTimeout(this.ptr.timer);
+    $('debug').classList.add('hidden');
   }
 
   // ---------- loop ----------
   private frame = (ts: number): void => {
     if (this.disposed) return;
-    const dt = Math.min(0.25, this.lastT ? (ts - this.lastT) / 1000 : 0);
+    const dt = Math.min(MAX_DT, this.lastT ? (ts - this.lastT) / 1000 : 0);
     this.lastT = ts;
     const m = this.match, step = 1 / m.bal.tickRate;
-    const blocked = this.paused || matchMedia('(orientation: portrait) and (max-width: 820px)').matches;
+    const blocked = this._paused || matchMedia('(orientation: portrait) and (max-width: 820px)').matches;
     if (!blocked && m.phase === 'playing') {
-      this.acc += dt; this.time += dt;
-      while (this.acc >= step) {
+      this.acc += dt * this.speed; this.time += dt;
+      while (this.acc >= step && m.phase === 'playing') {
         for (const ai of this.ais) ai.update(m);
+        this.autopilot?.update(m);
         m.step(); this.stepsRun++;
         this.react();
         this.acc -= step;
@@ -67,9 +81,15 @@ export class Session {
     if (this.drag) this.drag.sources = this.drag.sources.filter(id => m.buildings[id].owner === this.human);
     if (this.drag && this.drag.sources.length === 0) this.drag = null;
     this.renderer.draw({
-      match: m, alpha: m.phase === 'playing' && !blocked ? this.acc / step : 1, time: this.time, human: this.human,
-      pct: this.pct, selection: this.selection, drag: this.drag, box: this.box,
+      match: m, alpha: m.phase === 'playing' && !blocked ? Math.min(1, this.acc / step) : 1, time: this.time, human: this.human,
+      pct: this.pct, selection: this.selection, drag: this.drag, box: this.box, lowFx: this.lowFx,
+      labels: { attack: t('lblAttack'), reinforce: t('lblReinforce'), capture: t('lblCapture') },
     });
+    // weak device: if frames stay slow for 3 seconds, drop to reduced effects (fewer sprites and particles)
+    if (!this.lowFx && !blocked) {
+      this.slowFor = this.renderer.frameMs > VIS.autoLowFxFrameMs ? this.slowFor + dt : 0;
+      if (this.slowFor > 3) this.autoLow = true;
+    }
     this.updateHud();
     if (m.phase === 'ended' && !this.finished) {
       this.finished = true;
@@ -80,21 +100,34 @@ export class Session {
     this.raf = requestAnimationFrame(this.frame);
   };
 
+  /** Sound and messages for what just happened in the simulation. */
   private react(): void {
     const m = this.match;
     this.renderer.onEvents(m, m.events);
     for (const e of m.events) {
-      if (e.type === 'capture') { if (e.by === this.human) sfx.capture(); else if (e.from === this.human) sfx.lost(); }
-      else if (e.type === 'shot') sfx.shot();
-      else if (e.type === 'hit') sfx.hit();
-      else if (e.type === 'launch' && e.owner === this.human) sfx.launch();
+      if (e.type === 'building_captured') { if (e.by === this.human) sfx.capture(); else if (e.from === this.human) sfx.lost(); }
+      else if (e.type === 'tower_fired') sfx.shot();
+      else if (e.type === 'battle_hit') { if (this.time - this.lastHitSfx > 0.09) { this.lastHitSfx = this.time; sfx.hit(); } }
+      else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0 && m.buildings[e.building].owner === this.human) sfx.defended();
       else if ((e.type === 'upgraded' || e.type === 'converted') && m.buildings[e.building].owner === this.human) sfx.upgrade();
+      else if (e.type === 'order_rejected' && e.player === this.human && !this.autopilot) this.toast(t(e.reason === 'empty' ? 'msgEmpty' : e.reason === 'cooldown' ? 'msgCooldown' : 'msgNotYours'));
     }
+    // one alert per newly threatened building, never more often than every few seconds
+    const now = new Set<number>();
+    for (const a of m.armies) { const b = m.buildings[a.to]; if (b.owner === this.human && !m.sameTeam(a.owner, this.human)) now.add(b.id); }
+    for (const id of now) if (!this.alerted.has(id) && this.time - this.lastAlert > 4) { this.lastAlert = this.time; sfx.alert(); break; }
+    this.alerted = now;
+  }
+
+  private toast(text: string): void {
+    const el = $('toast'); el.textContent = text; el.classList.remove('hidden');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => el.classList.add('hidden'), 1500);
   }
 
   // ---------- input ----------
   private pick(sx: number, sy: number): Building | null {
-    const r = this.renderer, lim = Math.max(30, 58 * r.scale);
+    const r = this.renderer, lim = Math.max(30, 60 * r.scale);
     let best: Building | null = null, bd = lim;
     for (const b of this.match.buildings) {
       const p = r.toScreen(b.x, b.y);
@@ -105,20 +138,28 @@ export class Session {
   }
 
   private send(from: number[], to: number): void {
-    const list = from.filter(id => id !== to);
+    const m = this.match;
+    const list = from.filter(id => id !== to && m.buildings[id].owner === this.human);
     if (list.length === 0) return;
-    this.match.enqueue({ type: 'send', player: this.human, from: list, to, pct: this.pct });
+    if (list.every(id => m.sendCount(m.buildings[id], this.pct) === 0)) { this.toast(t('msgEmpty')); sfx.deny(); return; }
+    m.enqueue({ type: 'send', player: this.human, from: list, to, pct: this.pct });
     sfx.send();
-    $('hint').classList.add('hidden');
+    if (!this.ordered) { this.ordered = true; $('hint').classList.add('hidden'); }   // the tutorial hint leaves after the first real order
+  }
+
+  private cancelPointer(): void {
+    if (this.ptr) clearTimeout(this.ptr.timer);
+    this.ptr = null; this.drag = null; this.box = null;
   }
 
   private bind(): void {
     const cv = this.canvas;
     const pos = (e: PointerEvent) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-    const live = () => !this.paused && this.match.phase === 'playing';
+    const live = () => !this._paused && this.match.phase === 'playing';
     const down = (e: PointerEvent) => {
       e.preventDefault(); unlockAudio();
-      if (!live() || this.ptr) return;
+      if (!live()) return;
+      if (this.ptr) { this.cancelPointer(); return; }   // a second finger cancels the gesture instead of sending something by accident
       const p = pos(e), b = this.pick(p.x, p.y);
       try { cv.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
       const st = { id: e.pointerId, x0: p.x, y0: p.y, down: b ? b.id : null, moved: false, long: false, timer: 0 };
@@ -167,13 +208,11 @@ export class Session {
       if (st.down === null) { this.selection.clear(); return; }
       const b = m.buildings[st.down];
       if (this.selection.size > 0 && !this.selection.has(b.id)) { this.send([...this.selection], b.id); this.selection.clear(); }
-      else if (b.owner !== this.human) sfx.deny();
+      else if (b.owner !== this.human) { sfx.deny(); this.toast(t('msgNotYours')); }
       else if (this.selection.has(b.id)) { this.selection.delete(b.id); sfx.tap(); }
       else { this.selection.add(b.id); sfx.tap(); }
     };
-    const cancel = (e: PointerEvent) => {
-      if (this.ptr && this.ptr.id === e.pointerId) { clearTimeout(this.ptr.timer); this.ptr = null; this.drag = null; this.box = null; }
-    };
+    const cancel = (e: PointerEvent) => { if (this.ptr && this.ptr.id === e.pointerId) this.cancelPointer(); };
     const resize = () => this.renderer.resize(this.match);
     const noMenu = (e: Event) => e.preventDefault();
     cv.addEventListener('pointerdown', down); cv.addEventListener('pointermove', move);
@@ -197,6 +236,7 @@ export class Session {
       b.onclick = () => { this.pct = p; sfx.tap(); unlockAudio(); };
       left.appendChild(b);
     }
+    // «الكل»: select every building you own (tap again to clear), ready to send them all at one target
     $('btnAll').onclick = () => {
       const mine = this.match.buildings.filter(b => b.owner === this.human);
       const all = mine.every(b => this.selection.has(b.id));
@@ -216,7 +256,10 @@ export class Session {
     }
     $('morale').innerHTML = '<span>🍃</span>'.repeat(BALANCE.morale.max);
     $('hint').textContent = t('hint'); $('hint').classList.remove('hidden');
-    setTimeout(() => $('hint').classList.add('hidden'), 12000);
+    $('toast').classList.add('hidden');
+    const hintTimer = window.setTimeout(() => $('hint').classList.add('hidden'), 9000);   // and never sits on the map for long
+    this.cleanup.push(() => clearTimeout(hintTimer));
+    $('debug').classList.toggle('hidden', !this.debug);
   }
 
   private set(id: string, v: string, html = false): void {
@@ -238,8 +281,9 @@ export class Session {
     this.set('forgeStat', fc ? `☀️ +${Math.round(fc * m.bal.forge.attackBonus * 100)}%` : '');
     const sec = Math.floor(m.tick / m.bal.tickRate);
     this.set('clock', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+    // one chip per player: how many buildings that player owns right now
     this.set('foes', m.players.map(p =>
-      `<span class="chip${p.alive ? '' : ' dead'}" style="--c:${colorOf(p.id)}">${m.buildingCount(p.id)}</span>`).join(''), true);
+      `<span class="chip${p.alive ? '' : ' dead'}" style="--c:${colorOf(p.id)}"><i>⌂</i>${m.buildingCount(p.id)}</span>`).join(''), true);
     document.querySelectorAll<HTMLElement>('.pct').forEach(b => b.classList.toggle('on', Number(b.dataset.pct) === this.pct));
 
     const one = this.selection.size === 1 ? m.buildings[[...this.selection][0]] : null;
@@ -254,6 +298,11 @@ export class Session {
     for (const k of ['farm', 'tower', 'forge'] as const) {
       label('act-' + k, !!one && one.type !== k, `<b>${ICON[k]}</b><i>${t(k)}</i><u>${m.bal.convert.cost}</u>`, !!one && m.canConvert(one, k));
     }
+    if (this.debug && m.tick % 5 === 0) {
+      const r = this.renderer;
+      this.set('debug', `${r.frameMs.toFixed(1)} ms · ${r.drawnSoldiers} sprites · ${m.armies.length} armies${this.lowFx ? ' · lowFx' : ''}\n` +
+        this.ais.map(a => `AI${a.player} ${a.difficulty}: ` + a.trace.slice(-3).map(d => `[${d.tick}] ${d.action} ${d.detail}`).join(' | ')).join('\n'));
+    }
   }
 
   /** Test hook: where a building sits on screen. */
@@ -261,6 +310,9 @@ export class Session {
     const b = this.match.buildings[id], p = this.renderer.toScreen(b.x, b.y), r = this.canvas.getBoundingClientRect();
     return { x: p.x + r.left, y: p.y - 26 * this.renderer.scale + r.top };
   }
+  /** Test hook: let an AI of the given level play the human seat. */
+  autoplay(diff: Difficulty | null, speed = 1): void {
+    this.autopilot = diff ? new AIController(this.human, diff, this.opts.seed + 99) : null;
+    this.speed = speed;
+  }
 }
-
-export { TILT };

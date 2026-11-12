@@ -309,7 +309,7 @@ export class Match {
       a.units -= kills;
       this.players[a.owner].stats.lost += kills;
       this.players[s.owner].stats.killed += kills;
-      this.events.push({ type: 'projectile_hit', projectile: s.id, army: a.id, owner: s.owner, x: a.x, y: a.y, kills });
+      this.events.push({ type: 'projectile_hit', projectile: s.id, army: a.id, owner: s.owner, victim: a.owner, x: a.x, y: a.y, kills });
       if (a.units <= 0) {
         a.state = 'cancelled';
         this.addMorale(a.owner, -this.bal.morale.waveShotDown);
