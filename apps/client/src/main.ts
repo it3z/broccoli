@@ -106,6 +106,7 @@ function init(): void {
   setLang(store.get('lang', 'ar') as Lang);
   setSound(soundOn);
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
+  document.addEventListener('click', unlockAudio);
   // iOS Safari: stop pinch-zoom and double-tap zoom from hijacking the battlefield
   for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, e => e.preventDefault());
 

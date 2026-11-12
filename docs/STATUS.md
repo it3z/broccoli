@@ -6,7 +6,7 @@
 
 | الفحص | النتيجة |
 |---|---|
-| `npm run test` — محاكاة | 20/20 ناجح |
+| `npm run test` — محاكاة | 19/19 ناجح |
 | `npm run lint` — TypeScript | بلا أخطاء |
 | `npm run build` | ناجح (app.js ≈ 53KB) |
 | `npm run test:e2e` — Chrome، 844×390 أفقي، لمس، UA آيفون + سطح مكتب بالفأرة | 23/23 ناجح، بلا أخطاء console، زمن الإطار ≈16.7ms |

@@ -26,7 +26,7 @@ npm run dev        # يشغّل اللعبة ويعيد البناء عند أي
 |---|---|
 | `npm run dev` | خادم تطوير على كل واجهات الشبكة |
 | `npm run build` | بناء `dist/` (index.html + app.js) وملف واحد مستقل `dist/broccoli.html` |
-| `npm run test` | اختبارات المحاكاة (20 اختباراً) |
+| `npm run test` | اختبارات المحاكاة (19 اختباراً) |
 | `npm run test:e2e` | مباراة حقيقية آلية في Chrome بمقاس هاتف أفقي ولمس (يتطلب `npm run build` و Chrome مثبتاً) |
 | `npm run lint` | فحص الأنواع TypeScript |
 

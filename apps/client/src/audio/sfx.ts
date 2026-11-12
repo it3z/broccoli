@@ -7,7 +7,7 @@ export function setSound(on: boolean): void { enabled = on; }
 export function unlockAudio(): void {
   try {
     if (!ac) ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    if (ac.state === 'suspended') void ac.resume();
+    if (ac.state === 'suspended') ac.resume().catch(() => {});
   } catch { ac = null; }
 }
 
