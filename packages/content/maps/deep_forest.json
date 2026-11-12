@@ -1,0 +1,35 @@
+{
+  "id": "deep_forest",
+  "name": { "ar": "الغابة العميقة", "en": "Deep Forest" },
+  "biome": "forest",
+  "width": 1600,
+  "height": 900,
+  "slots": 4,
+  "buildings": [
+    { "type": "farm", "level": 2, "x": 200, "y": 200, "slot": 0, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 410, "y": 155, "slot": 0, "garrison": 10 },
+    { "type": "farm", "level": 2, "x": 1400, "y": 700, "slot": 1, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 1190, "y": 745, "slot": 1, "garrison": 10 },
+    { "type": "farm", "level": 2, "x": 1400, "y": 200, "slot": 2, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 1190, "y": 155, "slot": 2, "garrison": 10 },
+    { "type": "farm", "level": 2, "x": 200, "y": 700, "slot": 3, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 410, "y": 745, "slot": 3, "garrison": 10 },
+    { "type": "farm", "level": 1, "x": 210, "y": 450, "slot": -1, "garrison": 7 },
+    { "type": "farm", "level": 1, "x": 1390, "y": 450, "slot": -1, "garrison": 7 },
+    { "type": "farm", "level": 1, "x": 800, "y": 150, "slot": -1, "garrison": 7 },
+    { "type": "farm", "level": 1, "x": 800, "y": 750, "slot": -1, "garrison": 7 },
+    { "type": "tower", "level": 1, "x": 600, "y": 340, "slot": -1, "garrison": 10 },
+    { "type": "tower", "level": 1, "x": 1000, "y": 340, "slot": -1, "garrison": 10 },
+    { "type": "tower", "level": 1, "x": 600, "y": 560, "slot": -1, "garrison": 10 },
+    { "type": "tower", "level": 1, "x": 1000, "y": 560, "slot": -1, "garrison": 10 },
+    { "type": "forge", "level": 1, "x": 800, "y": 450, "slot": -1, "garrison": 20 }
+  ],
+  "obstacles": [
+    { "kind": "pond", "x": 430, "y": 320, "r": 44 },
+    { "kind": "pond", "x": 1170, "y": 320, "r": 44 },
+    { "kind": "pond", "x": 430, "y": 580, "r": 44 },
+    { "kind": "pond", "x": 1170, "y": 580, "r": 44 },
+    { "kind": "rock", "x": 800, "y": 300, "r": 34 },
+    { "kind": "rock", "x": 800, "y": 600, "r": 34 }
+  ]
+}

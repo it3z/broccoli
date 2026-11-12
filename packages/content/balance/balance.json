@@ -1,0 +1,46 @@
+{
+  "tickRate": 20,
+  "waveSize": 8,
+  "waveIntervalTicks": 5,
+  "unitSpeed": 90,
+  "maxDispatchesPerBuilding": 3,
+  "matchTimeLimitSec": 1200,
+  "farm": {
+    "levels": [
+      { "prod": 0.6, "cap": 20, "def": 1.0 },
+      { "prod": 1.0, "cap": 40, "def": 1.1 },
+      { "prod": 1.4, "cap": 65, "def": 1.2 },
+      { "prod": 1.9, "cap": 90, "def": 1.3 }
+    ],
+    "upgradeCost": [8, 18, 32],
+    "upgradeTimeSec": [4, 6, 8]
+  },
+  "tower": {
+    "levels": [
+      { "range": 170, "fireIntervalSec": 0.9, "damage": 1, "def": 1.4 },
+      { "range": 195, "fireIntervalSec": 0.7, "damage": 1, "def": 1.55 },
+      { "range": 220, "fireIntervalSec": 0.55, "damage": 1, "def": 1.7 },
+      { "range": 250, "fireIntervalSec": 0.42, "damage": 1, "def": 1.9 }
+    ],
+    "upgradeCost": [15, 22, 30],
+    "upgradeTimeSec": [5, 7, 9]
+  },
+  "forge": { "def": 1.1, "attackBonus": 0.1, "defenseBonus": 0.08, "maxStack": 4 },
+  "convert": { "cost": 18, "timeSec": 5 },
+  "morale": {
+    "start": 1.0,
+    "max": 5,
+    "attackPerPoint": 0.08,
+    "defensePerPoint": 0.06,
+    "speedPerPoint": 0.05,
+    "captureEnemy": 0.5,
+    "captureNeutral": 0.3,
+    "loseBuilding": 0.5,
+    "defendWave": 0.04,
+    "failedWave": 0.03,
+    "waveShotDown": 0.05,
+    "upgrade": 0.25,
+    "idleAfterSec": 20,
+    "idleDecayPerSec": 0.02
+  }
+}

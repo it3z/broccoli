@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#17351f">
+<title>BROCCOLI: Kingdom Clash</title>
+<style>
+  :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
+    --leaf: #37b25a; --leaf-d: #1f7a3c; --ink: #10261a; --cream: #f6f1d8; --gold: #ffd95a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; position: fixed; inset: 0; background: #17351f;
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; color: var(--cream);
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
+  .hidden { display: none !important; }
+  #app { position: fixed; inset: 0; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #stage { position: absolute; pointer-events: none; top: calc(46px + var(--st)); bottom: calc(8px + var(--sb)); left: calc(66px + var(--sl)); right: calc(66px + var(--sr)); }
+
+  /* HUD */
+  #hud { position: absolute; inset: 0; pointer-events: none; direction: ltr; }
+  #hud > * { pointer-events: auto; }
+  #top { position: absolute; top: calc(4px + var(--st)); left: calc(8px + var(--sl)); right: calc(8px + var(--sr)); height: 38px; display: flex; align-items: center; gap: 6px; pointer-events: none; }
+  .stat { background: rgba(16,38,26,.78); border-radius: 19px; padding: 0 11px; height: 34px; display: flex; align-items: center; font-weight: 800; font-size: 15px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .stat:empty { display: none; }
+  #morale span { font-size: 15px; margin: 0 -1px; transition: opacity .3s; }
+  #income { color: #b9f5c6; } #forgeStat { color: var(--gold); }
+  #clock { margin-inline: auto; }
+  #foes { display: flex; gap: 4px; }
+  .chip { min-width: 30px; height: 30px; border-radius: 15px; background: var(--c); color: #fff; font-weight: 900; font-size: 14px; display: grid; place-items: center; padding: 0 6px; border: 2px solid rgba(0,0,0,.35); text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+  .chip.dead { opacity: .35; text-decoration: line-through; }
+  #btnPause { pointer-events: auto; width: 44px; height: 38px; border-radius: 12px; background: rgba(16,38,26,.85); font-size: 18px; }
+  .col { position: absolute; top: calc(48px + var(--st)); bottom: calc(6px + var(--sb)); width: 58px; display: flex; flex-direction: column; justify-content: center; gap: 6px; pointer-events: none !important; }
+  .col > * { pointer-events: auto; }
+  #left { left: calc(5px + var(--sl)); } #right { right: calc(5px + var(--sr)); }
+  #pcts { display: flex; flex-direction: column; gap: 6px; }
+  .pct, #btnAll { height: 48px; max-height: 15vh; border-radius: 14px; background: rgba(16,38,26,.82); font-weight: 900; font-size: 15px; border: 2px solid rgba(255,255,255,.18); }
+  .pct.on { background: var(--gold); color: var(--ink); border-color: #fff; transform: scale(1.06); }
+  #btnAll { font-size: 13px; background: rgba(40,90,60,.9); }
+  #acts { display: flex; flex-direction: column; gap: 6px; }
+  .act { height: 58px; max-height: 20vh; border-radius: 14px; background: linear-gradient(#48c56c, #2a8f4a); border: 2px solid rgba(255,255,255,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; }
+  .act b { font-size: 17px; } .act i { font-style: normal; font-size: 10px; font-weight: 700; } .act u { text-decoration: none; font-size: 12px; font-weight: 900; color: var(--gold); }
+  .act:disabled { background: rgba(16,38,26,.75); opacity: .6; }
+  #hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--sb)); background: rgba(16,38,26,.88); padding: 8px 16px; border-radius: 18px; font-weight: 700; font-size: 14px; max-width: 70%; text-align: center; pointer-events: none; }
+
+  /* screens */
+  .screen, .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+    padding: calc(10px + var(--st)) calc(18px + var(--sr)) calc(10px + var(--sb)) calc(18px + var(--sl)); }
+  .screen { background: radial-gradient(120% 120% at 50% 0%, #3f9a55 0%, #1f5a34 55%, #12301e 100%); overflow-y: auto; touch-action: pan-y; }
+  .screen.on, .overlay.on { display: flex; }
+  .overlay { background: rgba(8,22,14,.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 5; }
+  .logo { font-size: clamp(34px, 9vh, 76px); font-weight: 900; letter-spacing: .04em; color: #fff; text-shadow: 0 4px 0 var(--leaf-d), 0 8px 18px rgba(0,0,0,.45); margin: 0; direction: ltr; }
+  .sub { font-size: clamp(14px, 3.4vh, 24px); font-weight: 800; color: var(--gold); margin: 2px 0; }
+  .tag { opacity: .8; font-size: clamp(12px, 2.6vh, 16px); margin: 0 0 clamp(8px, 3vh, 26px); }
+  .btn { min-width: 220px; min-height: 48px; padding: 0 26px; margin: 5px; border-radius: 26px; font-weight: 900; font-size: 17px; background: linear-gradient(#4fd077, #2a9a4e); box-shadow: 0 4px 0 #17652f, 0 8px 16px rgba(0,0,0,.3); }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #17652f; }
+  .btn.alt { background: linear-gradient(#f6f1d8, #d9d2ae); color: var(--ink); box-shadow: 0 4px 0 #8f8a63, 0 8px 16px rgba(0,0,0,.3); }
+  .btn.warn { background: linear-gradient(#f0787b, #c93a3e); box-shadow: 0 4px 0 #7d1f22, 0 8px 16px rgba(0,0,0,.3); }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
+  h2 { margin: 0 0 8px; font-size: clamp(18px, 5vh, 28px); }
+  .panel { background: rgba(10,30,18,.55); border-radius: 20px; padding: 12px 16px; width: min(760px, 100%); }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 7px 0; font-weight: 800; }
+  .seg { display: flex; background: rgba(0,0,0,.3); border-radius: 16px; padding: 3px; }
+  .segb { min-width: 62px; min-height: 40px; padding: 0 12px; border-radius: 13px; background: transparent; font-weight: 800; }
+  .segb.on { background: var(--gold); color: var(--ink); }
+  #maps { display: flex; gap: 10px; justify-content: center; margin-bottom: 4px; }
+  .map { background: rgba(0,0,0,.25); border-radius: 14px; padding: 6px; border: 3px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; font-weight: 800; font-size: 13px; }
+  .map canvas { width: clamp(120px, 26vh, 200px); border-radius: 9px; display: block; }
+  .map.on { border-color: var(--gold); background: rgba(255,217,90,.15); }
+  #howto ol { margin: 0; padding-inline-start: 22px; line-height: 1.55; font-size: clamp(13px, 3.3vh, 17px); }
+  #resIcon { font-size: clamp(40px, 12vh, 80px); line-height: 1; }
+  #resTitle { font-size: clamp(28px, 9vh, 56px); font-weight: 900; margin: 0 0 6px; }
+  #resTitle.win { color: var(--gold); } #resTitle.loss { color: #ff9c9c; }
+  #resStats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; margin-bottom: 8px; min-width: min(420px, 90%); }
+  #resStats div { display: flex; justify-content: space-between; gap: 14px; font-size: 14px; } #resStats b { color: var(--gold); }
+  #rotate { display: none; position: absolute; inset: 0; z-index: 9; background: #12301e; align-items: center; justify-content: center; flex-direction: column; font-weight: 900; font-size: 20px; text-align: center; padding: 24px; }
+  #rotate b { font-size: 64px; display: block; animation: rot 1.6s ease-in-out infinite; }
+  @keyframes rot { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(90deg); } }
+  @media (orientation: portrait) and (max-width: 820px) { #rotate { display: flex; } }
+  @media (max-height: 400px) { .btn { min-height: 44px; margin: 4px; font-size: 16px; } .panel { padding: 8px 14px; } .field { margin: 4px 0; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cv" class="hidden"></canvas>
+  <div id="stage"></div>
+
+  <div id="hud" class="hidden">
+    <div id="top">
+      <div class="stat" id="morale"></div>
+      <div class="stat" id="units"></div>
+      <div class="stat" id="income"></div>
+      <div class="stat" id="forgeStat"></div>
+      <div class="stat" id="clock"></div>
+      <div id="foes"></div>
+      <button id="btnPause" aria-label="Pause">⏸</button>
+    </div>
+    <div class="col" id="left"><div id="pcts"></div><button id="btnAll" data-i18n="all"></button></div>
+    <div class="col" id="right"><div id="acts"></div></div>
+    <div id="hint" class="hidden"></div>
+  </div>
+
+  <section class="screen" id="menu">
+    <h1 class="logo">🥦 BROCCOLI</h1>
+    <div class="sub" data-i18n="subtitle"></div>
+    <p class="tag" data-i18n="tagline"></p>
+    <div class="row">
+      <button class="btn" id="btnSolo" data-i18n="solo"></button>
+      <button class="btn alt" id="btnHow" data-i18n="howto"></button>
+      <button class="btn alt" id="btnSettings" data-i18n="settings"></button>
+    </div>
+  </section>
+
+  <section class="screen" id="setup">
+    <div class="panel">
+      <div id="maps"></div>
+      <div class="field"><span data-i18n="opponents"></span><div class="seg" id="segOpp"></div></div>
+      <div class="field"><span data-i18n="difficulty"></span><div class="seg" id="segDiff"></div></div>
+    </div>
+    <div class="row">
+      <button class="btn alt" data-back data-i18n="back"></button>
+      <button class="btn" id="btnStart" data-i18n="start"></button>
+    </div>
+  </section>
+
+  <section class="screen" id="howto">
+    <div class="panel">
+      <h2 data-i18n="howto"></h2>
+      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h7"></li></ol>
+    </div>
+    <button class="btn alt" data-back data-i18n="back"></button>
+  </section>
+
+  <section class="screen" id="settings">
+    <div class="panel">
+      <h2 data-i18n="settings"></h2>
+      <div class="field"><span data-i18n="language"></span><div class="seg" id="segLang"></div></div>
+      <div class="field"><span data-i18n="sound"></span><div class="seg" id="segSound"></div></div>
+    </div>
+    <button class="btn alt" data-back data-i18n="back"></button>
+  </section>
+
+  <div class="overlay" id="pause">
+    <h2 data-i18n="paused"></h2>
+    <div class="row">
+      <button class="btn" id="btnResume" data-i18n="resume"></button>
+      <button class="btn alt" id="btnRestart" data-i18n="restart"></button>
+    </div>
+    <div class="row">
+      <button class="btn warn" id="btnSurrender" data-i18n="surrender"></button>
+      <button class="btn alt" id="btnQuit" data-i18n="menu"></button>
+    </div>
+  </div>
+
+  <div class="overlay" id="result">
+    <div id="resIcon"></div>
+    <div id="resTitle"></div>
+    <div id="resStats"></div>
+    <div class="row">
+      <button class="btn" id="btnAgain" data-i18n="again"></button>
+      <button class="btn alt" id="btnResMenu" data-i18n="menu"></button>
+    </div>
+  </div>
+
+  <div id="rotate"><b>📱</b><span data-i18n="rotate"></span></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

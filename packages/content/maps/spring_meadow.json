@@ -1,0 +1,29 @@
+{
+  "id": "spring_meadow",
+  "name": { "ar": "مرج الربيع", "en": "Spring Meadow" },
+  "biome": "meadow",
+  "width": 1600,
+  "height": 900,
+  "slots": 2,
+  "buildings": [
+    { "type": "farm", "level": 2, "x": 230, "y": 330, "slot": 0, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 230, "y": 600, "slot": 0, "garrison": 10 },
+    { "type": "farm", "level": 2, "x": 1370, "y": 570, "slot": 1, "garrison": 18 },
+    { "type": "farm", "level": 1, "x": 1370, "y": 300, "slot": 1, "garrison": 10 },
+    { "type": "farm", "level": 1, "x": 520, "y": 170, "slot": -1, "garrison": 8 },
+    { "type": "farm", "level": 1, "x": 1080, "y": 730, "slot": -1, "garrison": 8 },
+    { "type": "farm", "level": 1, "x": 520, "y": 740, "slot": -1, "garrison": 9 },
+    { "type": "farm", "level": 1, "x": 1080, "y": 160, "slot": -1, "garrison": 9 },
+    { "type": "farm", "level": 1, "x": 560, "y": 450, "slot": -1, "garrison": 6 },
+    { "type": "farm", "level": 1, "x": 1040, "y": 450, "slot": -1, "garrison": 6 },
+    { "type": "tower", "level": 1, "x": 800, "y": 450, "slot": -1, "garrison": 14 },
+    { "type": "forge", "level": 1, "x": 800, "y": 165, "slot": -1, "garrison": 12 },
+    { "type": "forge", "level": 1, "x": 800, "y": 735, "slot": -1, "garrison": 12 }
+  ],
+  "obstacles": [
+    { "kind": "pond", "x": 670, "y": 305, "r": 52 },
+    { "kind": "pond", "x": 930, "y": 595, "r": 52 },
+    { "kind": "rock", "x": 395, "y": 465, "r": 36 },
+    { "kind": "rock", "x": 1205, "y": 435, "r": 36 }
+  ]
+}

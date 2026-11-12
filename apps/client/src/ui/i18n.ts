@@ -1,0 +1,59 @@
+export type Lang = 'ar' | 'en';
+
+const S: Record<string, [string, string]> = {
+  subtitle: ['صراع الممالك', 'Kingdom Clash'],
+  tagline: ['براعم صغيرة. معارك كبيرة.', 'Small Sprouts. Big Battles.'],
+  solo: ['مباراة فردية', 'Solo Skirmish'],
+  howto: ['طريقة اللعب', 'How to Play'],
+  settings: ['الإعدادات', 'Settings'],
+  language: ['اللغة', 'Language'],
+  sound: ['الصوت', 'Sound'],
+  on: ['تشغيل', 'On'],
+  off: ['إيقاف', 'Off'],
+  back: ['رجوع', 'Back'],
+  map: ['الخريطة', 'Map'],
+  opponents: ['عدد الخصوم', 'Opponents'],
+  difficulty: ['الصعوبة', 'Difficulty'],
+  easy: ['سهل', 'Easy'],
+  normal: ['عادي', 'Normal'],
+  hard: ['صعب', 'Hard'],
+  start: ['ابدأ المعركة', 'Start Battle'],
+  paused: ['متوقفة مؤقتاً', 'Paused'],
+  resume: ['استئناف', 'Resume'],
+  restart: ['إعادة المباراة', 'Restart'],
+  surrender: ['استسلام', 'Surrender'],
+  menu: ['القائمة الرئيسية', 'Main Menu'],
+  victory: ['انتصار!', 'Victory!'],
+  defeat: ['هزيمة', 'Defeat'],
+  draw: ['تعادل', 'Draw'],
+  time: ['المدة', 'Time'],
+  captures: ['مبانٍ استوليت عليها', 'Buildings captured'],
+  produced: ['جنود أنتجتهم', 'Units produced'],
+  lost: ['جنود خسرتهم', 'Units lost'],
+  again: ['العب مجدداً', 'Play Again'],
+  rotate: ['أدر هاتفك إلى الوضع الأفقي', 'Rotate your phone to landscape'],
+  all: ['الكل', 'All'],
+  upgrade: ['ترقية', 'Upgrade'],
+  tower: ['برج', 'Tower'],
+  forge: ['حدادة', 'Forge'],
+  farm: ['مزرعة', 'Farm'],
+  hint: ['اسحب من مبناك إلى أي مبنى لإرسال الجنود', 'Drag from your building to any building to send troops'],
+  players: ['لاعبين', 'players'],
+  h1: ['اسحب من مبنى أخضر تملكه إلى أي مبنى آخر لإرسال الجنود. أفلت في مكان فارغ للإلغاء.', 'Drag from a green building you own to any other building to send troops. Release on empty ground to cancel.'],
+  h2: ['أزرار 25 / 50 / 75 / 100% على اليسار تحدد نسبة الجنود المرسلة.', 'The 25 / 50 / 75 / 100% buttons on the left set how many troops leave.'],
+  h3: ['المس مبناك لتحديده، ثم المس هدفاً للإرسال. اضغط مطولاً أو ارسم إطاراً أو استخدم «الكل» لتحديد عدة مبانٍ.', 'Tap your building to select it, then tap a target to send. Long-press, drag a box, or use “All” to select several.'],
+  h4: ['المزرعة 🥦 تنتج الجنود. البرج 🗼 يرمي الأشواك على الأعداء المارّين. الحدادة ☀ تقوّي هجومك ودفاعك.', 'Farms 🥦 grow troops. Towers 🗼 shoot thorns at passing enemies. Forges ☀ boost your attack and defence.'],
+  h5: ['حدّد مبنى واحداً لترقيته أو تحويله من الأزرار على اليمين. الترقية والتحويل يكلّفان جنوداً ووقتاً.', 'Select one building to upgrade or convert it with the buttons on the right. Both cost troops and time.'],
+  h6: ['الأوراق 🍃 هي معنوياتك: ترتفع بالاستيلاء والدفاع والترقية وتزيد قوتك وسرعتك، وتنخفض بالخسائر والجمود.', 'Leaves 🍃 are your morale: captures, defence and upgrades raise it and make you stronger and faster; losses and idling lower it.'],
+  h7: ['استولِ على كل مباني الخصوم لتفوز.', 'Capture every enemy building to win.'],
+};
+
+let lang: Lang = 'ar';
+export const getLang = () => lang;
+export const t = (k: string): string => (S[k] ? S[k][lang === 'ar' ? 0 : 1] : k);
+export function setLang(l: Lang): void {
+  lang = l;
+  document.documentElement.lang = l;
+  document.querySelectorAll<HTMLElement>('.screen, .overlay').forEach(el => (el.dir = l === 'ar' ? 'rtl' : 'ltr'));
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => (el.textContent = t(el.dataset.i18n!)));
+}
