@@ -56,3 +56,7 @@ docs/                   الخطة والحالة
 ```
 
 كل أرقام التوازن في `packages/content/balance/balance.json`؛ إضافة خريطة = ملف JSON جديد + سطر في `packages/simulation/src/index.ts`.
+
+## الرابط المباشر (GitHub Pages)
+
+`index.html` في جذر المستودع هو نسخة اللعبة المبنية في ملف واحد (ناتج `npm run build` ← `dist/broccoli.html`). بعد أي تعديل: `npm run build` ثم انسخ `dist/broccoli.html` إلى `index.html`.
