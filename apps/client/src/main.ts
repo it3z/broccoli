@@ -15,9 +15,11 @@ let soundOn = store.get('sound', '1') === '1';
 let musicOn = store.get('music', '1') === '1';
 let lowFx = store.get('fx', 'high') === 'low';
 let howFromPause = false;
+let flipHud = store.get('side', 'left') === 'right';
+let roadClash = false;
 const setup: SessionOpts = {
   mapIndex: Number(store.get('map', '0')) % MAPS.length, opponents: 1,
-  difficulty: store.get('diff', 'normal') as Difficulty, seed: 1, lowFx: false,
+  difficulty: store.get('diff', 'normal') as Difficulty, seed: 1, lowFx: false, roadClash: false, flipHud: false, firstMatch: false,
 };
 
 function show(id: string | null): void {
@@ -65,6 +67,7 @@ function renderSetup(): void {
     v => { setup.opponents = Number(v); renderSetup(); });
   seg($('segDiff'), (['easy', 'normal', 'hard'] as const).map(d => ({ v: d, label: t(d) })), setup.difficulty,
     v => { setup.difficulty = v as Difficulty; store.set('diff', v); renderSetup(); });
+  seg($('segClash'), [{ v: '0', label: t('off') }, { v: '1', label: t('on') }], roadClash ? '1' : '0', v => { roadClash = v === '1'; renderSetup(); });
 }
 
 function renderSettings(): void {
@@ -76,6 +79,8 @@ function renderSettings(): void {
     v => { musicOn = v === '1'; setMusic(musicOn); store.set('music', v); renderSettings(); });
   seg($('segFx'), [{ v: 'high', label: t('fxHigh') }, { v: 'low', label: t('fxLow') }], lowFx ? 'low' : 'high',
     v => { lowFx = v === 'low'; store.set('fx', v); renderSettings(); });
+  seg($('segSide'), [{ v: 'left', label: t('left') }, { v: 'right', label: t('right') }], flipHud ? 'right' : 'left',
+    v => { flipHud = v === 'right'; store.set('side', v); renderSettings(); });
 }
 
 function startMatch(): void {
@@ -83,12 +88,13 @@ function startMatch(): void {
   overlay('pause', false); overlay('result', false);
   show(null);
   setup.seed = (Date.now() % 2147483647) | 1;
-  session = new Session({ ...setup, lowFx }, onEnd);
+  session = new Session({ ...setup, lowFx, roadClash, flipHud, firstMatch: store.get('lesson', '0') !== '1' }, onEnd);
+  session.onFirstOrder = () => store.set('lesson', '1');
   (window as unknown as { __broccoli: Session }).__broccoli = session;
 }
 
 function onEnd(m: Match): void {
-  const me = m.players[0], won = m.winnerTeam === me.team;
+  const me = m.players[0], won = m.winnerTeam === me.team, foes = m.players.filter(p => p.team !== me.team);
   $('resTitle').textContent = m.winnerTeam === null ? t('draw') : won ? t('victory') : t('defeat');
   $('resTitle').className = won ? 'win' : 'loss';
   $('resIcon').textContent = won ? '🏆' : m.winnerTeam === null ? '🤝' : '🥀';
@@ -98,9 +104,22 @@ function onEnd(m: Match): void {
     [t('captures'), String(me.stats.captures)],
     [t('produced'), String(Math.floor(me.stats.produced))],
     [t('lost'), String(Math.round(me.stats.lost))],
+    [t('enemyCaptures'), String(foes.reduce((n, p) => n + p.stats.captures, 0))],
+    [t('enemyLost'), String(Math.round(foes.reduce((n, p) => n + p.stats.lost, 0)))],
+    [t('turning'), turning(m)],
   ];
   $('resStats').innerHTML = rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
   overlay('result', true);
+}
+
+/** The last moment the eventual winner stopped being behind or level on buildings and stayed ahead. */
+function turning(m: Match): string {
+  if (m.winnerTeam === null) return '—';
+  const w = m.players.findIndex(p => p.team === m.winnerTeam);
+  let at = -1;
+  m.history.forEach((h, i) => { if (h[w] <= Math.max(...h.filter((_, j) => j !== w))) at = i; });
+  const sec = at + 2;
+  return at < 0 ? t('fromStart') : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
 function toMenu(): void {

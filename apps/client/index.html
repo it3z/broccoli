@@ -34,18 +34,23 @@
   .chip i { font-style: normal; font-size: 12px; opacity: .85; margin-inline-end: 2px; }
   #toast { position: absolute; left: 50%; transform: translateX(-50%); top: calc(52px + var(--st)); background: rgba(120,28,22,.92); padding: 7px 16px; border-radius: 16px; font-weight: 800; font-size: 14px; pointer-events: none !important; white-space: nowrap; }
   #debug { position: absolute; left: calc(70px + var(--sl)); bottom: calc(4px + var(--sb)); margin: 0; font: 10px/1.3 ui-monospace, monospace; background: rgba(0,0,0,.6); padding: 4px 6px; border-radius: 6px; max-width: 75%; white-space: pre-wrap; pointer-events: none !important; }
+  #toast.info { background: rgba(20,60,100,.92); }
   .chip.dead { opacity: .35; text-decoration: line-through; }
   #btnPause { pointer-events: auto; width: 44px; height: 38px; border-radius: 12px; background: rgba(16,38,26,.85); font-size: 18px; }
-  .col { position: absolute; top: calc(48px + var(--st)); bottom: calc(6px + var(--sb)); width: 58px; display: flex; flex-direction: column; justify-content: center; gap: 6px; pointer-events: none !important; }
+  .col { position: absolute; top: calc(46px + var(--st)); bottom: calc(4px + var(--sb)); width: 58px; display: flex; flex-direction: column; justify-content: center; gap: 4px; pointer-events: none !important; }
   .col > * { pointer-events: auto; }
   #left { left: calc(5px + var(--sl)); } #right { right: calc(5px + var(--sr)); }
-  #pcts { display: flex; flex-direction: column; gap: 6px; }
-  .pct, #btnAll { height: 48px; max-height: 15vh; border-radius: 14px; background: rgba(16,38,26,.82); font-weight: 900; font-size: 15px; border: 2px solid rgba(255,255,255,.18); }
-  .pct.on { background: var(--gold); color: var(--ink); border-color: #fff; transform: scale(1.06); }
-  #btnAll { font-size: 13px; background: rgba(40,90,60,.9); }
+  /* compact percent bar: one slim pill, each segment still a full-size touch target */
+  #pcts { display: flex; flex-direction: column; gap: 2px; background: rgba(16,38,26,.82); border-radius: 17px; padding: 3px; width: 54px; align-self: center; border: 1.5px solid rgba(255,255,255,.16); }
+  .pct { height: 42px; max-height: 13.5vh; border-radius: 13px; background: transparent; font-weight: 900; font-size: 12.5px; padding: 0; }
+  .pct.on { background: var(--gold); color: var(--ink); }
+  #btnSync, #btnAll { width: 54px; align-self: center; height: 40px; max-height: 12vh; border-radius: 13px; background: rgba(16,38,26,.82); border: 1.5px solid rgba(255,255,255,.16); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; font-size: 9.5px; font-weight: 800; padding: 0; }
+  #btnSync b { font-size: 14px; } #btnAll b { font-size: 11px; color: var(--gold); direction: ltr; }
+  #btnSync.on { background: #2f86c9; border-color: #fff; } #btnAll.on { background: #2a8f4a; border-color: #fff; }
+  #hud.flip #left { left: auto; right: calc(5px + var(--sr)); } #hud.flip #right { right: auto; left: calc(5px + var(--sl)); }
   #acts { display: flex; flex-direction: column; gap: 6px; }
   .act { height: 58px; max-height: 20vh; border-radius: 14px; background: linear-gradient(#48c56c, #2a8f4a); border: 2px solid rgba(255,255,255,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; }
-  .act b { font-size: 17px; } .act i { font-style: normal; font-size: 10px; font-weight: 700; } .act u { text-decoration: none; font-size: 12px; font-weight: 900; color: var(--gold); }
+  .act b { font-size: 17px; } .act i { font-style: normal; font-size: 10px; font-weight: 700; } .act u { text-decoration: none; font-size: 10.5px; font-weight: 900; color: var(--gold); direction: ltr; white-space: nowrap; }
   .act:disabled { background: rgba(16,38,26,.75); opacity: .6; }
   #hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--sb)); background: rgba(16,38,26,.88); padding: 5px 14px; border-radius: 14px; font-weight: 700; font-size: 12px; max-width: 60%; opacity: .92; text-align: center; pointer-events: none; }
 
@@ -101,7 +106,7 @@
       <div id="foes"></div>
       <button id="btnPause" aria-label="Pause">⏸</button>
     </div>
-    <div class="col" id="left"><div id="pcts"></div><button id="btnAll" data-i18n="all"></button></div>
+    <div class="col" id="left"><div id="pcts"></div><button id="btnSync"><b>⏱</b><span data-i18n="sync"></span></button><button id="btnAll"><span data-i18n="all"></span><b id="allCount"></b></button></div>
     <div class="col" id="right"><div id="acts"></div></div>
     <div id="hint" class="hidden"></div>
     <div id="toast" class="hidden"></div>
@@ -124,6 +129,7 @@
       <div id="maps"></div>
       <div class="field"><span data-i18n="opponents"></span><div class="seg" id="segOpp"></div></div>
       <div class="field"><span data-i18n="difficulty"></span><div class="seg" id="segDiff"></div></div>
+      <div class="field"><span data-i18n="clashRule"></span><div class="seg" id="segClash"></div></div>
     </div>
     <div class="row">
       <button class="btn alt" data-back data-i18n="back"></button>
@@ -134,7 +140,7 @@
   <section class="screen" id="howto" style="z-index:6">
     <div class="panel">
       <h2 data-i18n="howto"></h2>
-      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h7"></li></ol>
+      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h9"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h7"></li></ol>
     </div>
     <button class="btn alt" data-back data-i18n="back"></button>
   </section>
@@ -146,6 +152,7 @@
       <div class="field"><span data-i18n="music"></span><div class="seg" id="segMusic"></div></div>
       <div class="field"><span data-i18n="sound"></span><div class="seg" id="segSound"></div></div>
       <div class="field"><span data-i18n="effects"></span><div class="seg" id="segFx"></div></div>
+      <div class="field"><span data-i18n="hudSide"></span><div class="seg" id="segSide"></div></div>
     </div>
     <button class="btn alt" data-back data-i18n="back"></button>
   </section>

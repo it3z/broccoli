@@ -4,7 +4,7 @@ import { VIS } from './render/config';
 import { sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 
-export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean }
+export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ICON: Record<BuildingType, string> = { farm: '🥦', tower: '🗼', forge: '☀️' };
 const MAX_DT = 0.1; // a long frame (tab switch, Safari in background) never advances the match by more than this
@@ -17,7 +17,10 @@ export class Session {
   readonly ais: AIController[] = [];
   selection = new Set<number>();
   pct: Pct = 50;
+  /** Synchronized attack: with several sources selected, nearer buildings wait so everyone arrives together. */
+  sync = false;
   autoLow = false;
+  onFirstOrder: (() => void) | null = null;
   /** Test/dev hooks: let an AI play the human seat, and run several simulation steps per frame. */
   autopilot: AIController | null = null;
   speed = 1;
@@ -38,7 +41,7 @@ export class Session {
     const map = MAPS[opts.mapIndex];
     const players = [{ slot: 0, team: 0, isAI: false }];
     for (let i = 1; i <= Math.min(opts.opponents, map.slots - 1); i++) players.push({ slot: i, team: i, isAI: true });
-    this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players });
+    this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash });
     for (let i = 1; i < players.length; i++) this.ais.push(new AIController(i, opts.difficulty, opts.seed));
     this.renderer = new Renderer(this.canvas, $('stage'));
     this.bind();
@@ -83,7 +86,7 @@ export class Session {
     this.renderer.draw({
       match: m, alpha: m.phase === 'playing' && !blocked ? Math.min(1, this.acc / step) : 1, time: this.time, human: this.human,
       pct: this.pct, selection: this.selection, drag: this.drag, box: this.box, lowFx: this.lowFx,
-      labels: { attack: t('lblAttack'), reinforce: t('lblReinforce'), capture: t('lblCapture') },
+      sync: this.sync, labels: { attack: t('lblAttack'), reinforce: t('lblReinforce'), capture: t('lblCapture'), sec: t('sec') },
     });
     // weak device: if frames stay slow for 3 seconds, drop to reduced effects (fewer sprites and particles)
     if (!this.lowFx && !blocked) {
@@ -107,6 +110,10 @@ export class Session {
     for (const e of m.events) {
       if (e.type === 'building_captured') { if (e.by === this.human) sfx.capture(); else if (e.from === this.human) sfx.lost(); }
       else if (e.type === 'tower_fired') sfx.shot();
+      else if (e.type === 'clash_started') sfx.clash();
+      else if (e.type === 'clash_hit') { if (this.time - this.lastHitSfx > 0.09) { this.lastHitSfx = this.time; sfx.hit(); } }
+      else if (e.type === 'army_sent' && e.owner === this.human && !this.autopilot) sfx.march();
+      else if (e.type === 'order_queued' && e.player === this.human) sfx.queued();
       else if (e.type === 'battle_hit') { if (this.time - this.lastHitSfx > 0.09) { this.lastHitSfx = this.time; sfx.hit(); } }
       else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0 && m.buildings[e.building].owner === this.human) sfx.defended();
       else if ((e.type === 'upgraded' || e.type === 'converted') && m.buildings[e.building].owner === this.human) sfx.upgrade();
@@ -119,8 +126,8 @@ export class Session {
     this.alerted = now;
   }
 
-  private toast(text: string): void {
-    const el = $('toast'); el.textContent = text; el.classList.remove('hidden');
+  private toast(text: string, info = false): void {
+    const el = $('toast'); el.textContent = text; el.classList.remove('hidden'); el.classList.toggle('info', info);
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => el.classList.add('hidden'), 1500);
   }
@@ -142,9 +149,9 @@ export class Session {
     const list = from.filter(id => id !== to && m.buildings[id].owner === this.human);
     if (list.length === 0) return;
     if (list.every(id => m.sendCount(m.buildings[id], this.pct) === 0)) { this.toast(t('msgEmpty')); sfx.deny(); return; }
-    m.enqueue({ type: 'send', player: this.human, from: list, to, pct: this.pct });
+    m.enqueue({ type: 'send', player: this.human, from: list, to, pct: this.pct, sync: this.sync && list.length > 1 });
     sfx.send();
-    if (!this.ordered) { this.ordered = true; $('hint').classList.add('hidden'); }   // the tutorial hint leaves after the first real order
+    if (!this.ordered) { this.ordered = true; $('hint').classList.add('hidden'); this.onFirstOrder?.(); }   // the drag lesson leaves after the first successful order, for good
   }
 
   private cancelPointer(): void {
@@ -219,12 +226,14 @@ export class Session {
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', cancel);
     cv.addEventListener('contextmenu', noMenu);
     window.addEventListener('resize', resize); window.addEventListener('orientationchange', resize);
+    window.visualViewport?.addEventListener('resize', resize);   // Safari toolbars sliding in and out
     const ro = new ResizeObserver(resize); ro.observe($('stage'));
     this.cleanup.push(() => {
       cv.removeEventListener('pointerdown', down); cv.removeEventListener('pointermove', move);
       cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', cancel);
       cv.removeEventListener('contextmenu', noMenu);
       window.removeEventListener('resize', resize); window.removeEventListener('orientationchange', resize); ro.disconnect();
+      window.visualViewport?.removeEventListener('resize', resize);
     });
   }
 
@@ -236,7 +245,9 @@ export class Session {
       b.onclick = () => { this.pct = p; sfx.tap(); unlockAudio(); };
       left.appendChild(b);
     }
-    // «الكل»: select every building you own (tap again to clear), ready to send them all at one target
+    $('hud').classList.toggle('flip', this.opts.flipHud);
+    $('btnSync').onclick = () => { this.sync = !this.sync; sfx.tap(); this.toast(t(this.sync ? 'msgSyncOn' : 'msgSyncOff'), true); };
+    // «تحديد الكل»: selects every building you own (tap again to clear), ready to send them all at one target
     $('btnAll').onclick = () => {
       const mine = this.match.buildings.filter(b => b.owner === this.human);
       const all = mine.every(b => this.selection.has(b.id));
@@ -255,10 +266,8 @@ export class Session {
       acts.appendChild(b);
     }
     $('morale').innerHTML = '<span>🍃</span>'.repeat(BALANCE.morale.max);
-    $('hint').textContent = t('hint'); $('hint').classList.remove('hidden');
+    $('hint').textContent = t('hint'); $('hint').classList.toggle('hidden', !this.opts.firstMatch);   // drag lesson only until the first order ever
     $('toast').classList.add('hidden');
-    const hintTimer = window.setTimeout(() => $('hint').classList.add('hidden'), 9000);   // and never sits on the map for long
-    this.cleanup.push(() => clearTimeout(hintTimer));
     $('debug').classList.toggle('hidden', !this.debug);
   }
 
@@ -285,6 +294,10 @@ export class Session {
     this.set('foes', m.players.map(p =>
       `<span class="chip${p.alive ? '' : ' dead'}" style="--c:${colorOf(p.id)}"><i>⌂</i>${m.buildingCount(p.id)}</span>`).join(''), true);
     document.querySelectorAll<HTMLElement>('.pct').forEach(b => b.classList.toggle('on', Number(b.dataset.pct) === this.pct));
+    $('btnSync').classList.toggle('on', this.sync);
+    const owned = m.buildingCount(this.human);
+    $('btnAll').classList.toggle('on', this.selection.size > 0 && this.selection.size === owned);
+    this.set('allCount', `${this.selection.size}/${owned}`);
 
     const one = this.selection.size === 1 ? m.buildings[[...this.selection][0]] : null;
     const label = (id: string, show: boolean, text: string, ok: boolean) => {
@@ -294,9 +307,11 @@ export class Session {
       this.set(id, text, true); el.disabled = !ok;
     };
     const cost = one ? m.upgradeCost(one) : null;
-    label('act-upgrade', !!one && cost !== null, `<b>⬆️</b><i>${t('upgrade')}</i><u>${cost}</u>`, !!one && m.canUpgrade(one));
+    // cost in units and build time, shown only while a building is selected
+    const upSec = one && cost !== null ? (one.type === 'farm' ? m.bal.farm : m.bal.tower).upgradeTimeSec[one.level - 1] : 0;
+    label('act-upgrade', !!one && cost !== null, `<b>⬆️</b><i>${t('upgrade')}</i><u>${cost}🥦 ${upSec}${t('sec')}</u>`, !!one && m.canUpgrade(one));
     for (const k of ['farm', 'tower', 'forge'] as const) {
-      label('act-' + k, !!one && one.type !== k, `<b>${ICON[k]}</b><i>${t(k)}</i><u>${m.bal.convert.cost}</u>`, !!one && m.canConvert(one, k));
+      label('act-' + k, !!one && one.type !== k, `<b>${ICON[k]}</b><i>${t(k)}</i><u>${m.bal.convert.cost}🥦 ${m.bal.convert.timeSec}${t('sec')}</u>`, !!one && m.canConvert(one, k));
     }
     if (this.debug && m.tick % 5 === 0) {
       const r = this.renderer;

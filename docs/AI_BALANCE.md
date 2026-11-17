@@ -46,3 +46,51 @@
 ## حدود هذه البيانات
 - آلي ضد آلي فقط. **لم تُلعب مباريات يدوية بشرية**؛ صعوبة كل مستوى أمام لاعب حقيقي تحتاج تجربتك.
 - «صعب» يتفوق على «متوسط» بالانضباط لا بتكتيك أذكى؛ لا يزال بلا خدع (تزامن موجات، استدراج، ضرب المصدر بعد خروج جيشه).
+
+## أثر قاعدة «اشتباك الطرق» التجريبية (2026‑11‑16، 60 مباراة لكل مواجهة)
+
+الأمر: `npx tsx scripts/ai-sim.ts 60 --clash`
+
+**القاعدة القياسية**
+
+Rule set: standard, 60 games per pairing
+
+| Map | Pairing (A vs B) | A wins | B wins | Draw/timeout | A wins as seat 1 / seat 2 | Avg length | Orders/s A / B |
+|---|---|---|---|---|---|---|---|
+| Spring Meadow | easy vs easy | 58% | 42% | 0% | 60% / 57% | 1:44 | 0.29 / 0.27 |
+| Spring Meadow | normal vs normal | 33% | 67% | 0% | 40% / 27% | 1:33 | 0.43 / 0.47 |
+| Spring Meadow | hard vs hard | 50% | 50% | 0% | 47% / 53% | 1:39 | 0.52 / 0.52 |
+| Spring Meadow | normal vs easy | 88% | 12% | 0% | 93% / 83% | 1:21 | 0.50 / 0.23 |
+| Spring Meadow | hard vs normal | 60% | 40% | 0% | 60% / 60% | 1:42 | 0.54 / 0.45 |
+| Spring Meadow | hard vs easy | 87% | 13% | 0% | 83% / 90% | 1:24 | 0.55 / 0.23 |
+| Deep Forest | easy vs easy | 60% | 40% | 0% | 57% / 63% | 2:10 | 0.28 / 0.27 |
+| Deep Forest | normal vs normal | 65% | 35% | 0% | 67% / 63% | 1:58 | 0.48 / 0.44 |
+| Deep Forest | hard vs hard | 58% | 42% | 0% | 60% / 57% | 1:57 | 0.57 / 0.54 |
+| Deep Forest | normal vs easy | 80% | 20% | 0% | 80% / 80% | 1:53 | 0.53 / 0.25 |
+| Deep Forest | hard vs normal | 70% | 30% | 0% | 73% / 67% | 1:50 | 0.53 / 0.43 |
+| Deep Forest | hard vs easy | 98% | 2% | 0% | 97% / 100% | 1:27 | 0.64 / 0.22 |
+
+4-way normal on Deep Forest: seat wins 23% / 25% / 27% / 25%, draws 0%, avg 158s
+
+**مع اشتباك الطرق**
+
+Rule set: road clash ON (experimental), 60 games per pairing
+
+| Map | Pairing (A vs B) | A wins | B wins | Draw/timeout | A wins as seat 1 / seat 2 | Avg length | Orders/s A / B |
+|---|---|---|---|---|---|---|---|
+| Spring Meadow | easy vs easy | 63% | 37% | 0% | 67% / 60% | 1:50 | 0.29 / 0.27 |
+| Spring Meadow | normal vs normal | 32% | 68% | 0% | 37% / 27% | 1:35 | 0.44 / 0.49 |
+| Spring Meadow | hard vs hard | 48% | 52% | 0% | 60% / 37% | 1:36 | 0.55 / 0.54 |
+| Spring Meadow | normal vs easy | 82% | 18% | 0% | 87% / 77% | 1:26 | 0.51 / 0.24 |
+| Spring Meadow | hard vs normal | 68% | 32% | 0% | 77% / 60% | 1:36 | 0.55 / 0.45 |
+| Spring Meadow | hard vs easy | 87% | 13% | 0% | 87% / 87% | 1:22 | 0.57 / 0.23 |
+| Deep Forest | easy vs easy | 58% | 42% | 0% | 53% / 63% | 2:18 | 0.29 / 0.27 |
+| Deep Forest | normal vs normal | 58% | 42% | 0% | 60% / 57% | 1:55 | 0.48 / 0.45 |
+| Deep Forest | hard vs hard | 50% | 45% | 5% | 57% / 43% | 3:40 | 0.66 / 0.65 |
+| Deep Forest | normal vs easy | 70% | 30% | 0% | 60% / 80% | 1:44 | 0.51 / 0.25 |
+| Deep Forest | hard vs normal | 62% | 38% | 0% | 57% / 67% | 1:59 | 0.57 / 0.46 |
+| Deep Forest | hard vs easy | 98% | 2% | 0% | 100% / 97% | 1:29 | 0.66 / 0.22 |
+
+4-way normal on Deep Forest: seat wins 20% / 30% / 23% / 27%, draws 0%, avg 164s
+
+**القراءة:** على مرج الربيع لا تتغير مدة المباراة تقريباً (1:21–1:42 في الحالتين). على الغابة العميقة تتضاعف مدة مواجهة صعب×صعب (1:57 ← 3:40) وتظهر 5% مباريات تنتهي بالوقت، لأن الكتائب تتعطل في الممرات الوسطى. لذلك **بقيت القاعدة خياراً تجريبياً في شاشة الإعداد ولم تُعمَّم**. الـAI لا يخطط حولها بعد.

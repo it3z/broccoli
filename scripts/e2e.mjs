@@ -145,6 +145,43 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   check('C: tap-select then tap-target sends a reinforcement', s.armies.some(a => a.owner === 0 && a.to === 8) && s.sel.length === 0);
   check('page never scrolled', s.scrollY === 0);
 
+  // select all + synchronized attack on the far neutral farm (#4): the nearer building must wait
+  await page.waitForFunction(() => window.__broccoli.match.armies.filter(a => a.owner === 0).length === 0, null, { timeout: 15000 });
+  await page.evaluate(() => { const m = window.__broccoli.match; m.buildings[0].garrison = 20; m.buildings[1].garrison = 20; });
+  await page.tap('#btnAll'); await page.waitForTimeout(120);
+  let ui = await page.evaluate(() => ({ on: document.getElementById('btnAll').classList.contains('on'), count: document.getElementById('allCount').textContent, sel: window.__broccoli.selection.size, mine: window.__broccoli.match.buildingCount(0) }));
+  check('«تحديد الكل» selects every owned building and shows its state', ui.on && ui.sel === ui.mine && ui.count === `${ui.mine}/${ui.mine}`, ui.count);
+  await page.tap('#btnSync');
+  const order = await page.evaluate(() => { const s = window.__broccoli, m = s.match; s.selection.clear(); s.selection.add(0); s.selection.add(1); return m.tick; });
+  await page.touchscreen.tap(...Object.values(await at(page, 4)));
+  await page.waitForTimeout(250);
+  let sy = await page.evaluate(() => { const m = window.__broccoli.match; return { armies: m.armies.filter(a => a.owner === 0 && a.to === 4).length, pending: m.pending.length, sync: window.__broccoli.sync }; });
+  check('synchronized order: farthest group leaves, the nearer one waits with a countdown', sy.sync && sy.armies === 1 && sy.pending === 1, JSON.stringify(sy));
+  await page.screenshot({ path: join(shots, '6b-sync.png') });
+  const arrivals = await page.evaluate(() => new Promise(res => {
+    const m = window.__broccoli.match, seen = []; const t0 = Date.now();
+    const iv = setInterval(() => { for (const e of m.events) if (e.type === 'army_arrived' && e.owner === 0 && e.building === 4 && !seen.includes(m.tick)) seen.push(m.tick); if (seen.length >= 2 || Date.now() - t0 > 12000) { clearInterval(iv); res(seen); } }, 5);
+  }));
+  check('synchronized groups arrive together', arrivals.length >= 1 && Math.max(...arrivals) - Math.min(...arrivals) <= 2, `arrival ticks ${arrivals}`);
+  await page.tap('#btnSync');
+
+  // Safari toolbars appearing/disappearing, rotation, and coming back from another app
+  const fit = () => page.evaluate(() => { const s = window.__broccoli, st = document.getElementById('stage').getBoundingClientRect();
+    return { scale: s.renderer.scale, inside: s.match.buildings.every(b => { const p = s.screenOf(b.id); return p.x > st.left && p.x < st.right && p.y > st.top - 4 && p.y < st.bottom; }) }; });
+  const f0 = await fit();
+  await page.setViewportSize({ width: 844, height: 340 }); await page.waitForTimeout(250);
+  const f1 = await fit();
+  await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(250);
+  const f2 = await fit();
+  check('viewport height change (Safari bars): map refits and every building stays visible', f1.inside && f2.inside && f1.scale < f0.scale && Math.abs(f2.scale - f0.scale) < 1e-6, `${f0.scale.toFixed(3)} -> ${f1.scale.toFixed(3)} -> ${f2.scale.toFixed(3)}`);
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
+  const r1 = (await state(page)).tick; await page.waitForTimeout(700);
+  const r2 = (await state(page)).tick;
+  check('rotating to portrait shows the rotate notice and holds the match', await page.isVisible('#rotate') && r2 === r1);
+  await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(500);
+  const r3 = await state(page), f3 = await fit();
+  check('rotating back resumes without a jump', r3.tick > r2 && r3.tick - r2 <= 14 && f3.inside, `+${r3.tick - r2} ticks in 0.5 s`);
+
   // K: pause, wait, resume: no jump in time or production
   await page.tap('#btnPause');
   const p1 = await state(page); await page.waitForTimeout(1500);
@@ -185,7 +222,11 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
     const title = await page.textContent('#resTitle');
     check(`L: full match vs ${diff} AI ends with a result panel`, await page.isVisible('#result.on') && title.length > 0,
       `${s.winner === 0 ? 'player seat won' : 'AI won'} at ${Math.floor(s.tick / 20 / 60)}:${String(Math.floor(s.tick / 20) % 60).padStart(2, '0')}`);
-    if (diff === 'easy') await page.screenshot({ path: join(shots, '9-result.png') });
+    if (diff === 'easy') {
+      await page.screenshot({ path: join(shots, '9-result.png') });
+      const rows = await page.$$eval('#resStats div', els => els.map(e => e.textContent));
+      check('result panel shows both sides and the turning point', rows.length === 7 && rows.every(r => r.length > 2), rows.slice(4).join(' | '));
+    }
     await page.tap('#btnAgain');
     await page.waitForTimeout(500);
     s = await state(page);
@@ -201,6 +242,34 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   check('4-player map runs with 3 AI opponents', new Set(s.b.map(b => b.owner)).size >= 4 && s.tick > 300);
   check('frame time stays healthy in a 4-player battle', s.frameMs < 34, `${s.frameMs.toFixed(1)} ms, ${s.sprites} sprites, ${s.armies.length} armies`);
   await page.screenshot({ path: join(shots, '10-forest.png') });
+
+  // crowded-battle stress: many large armies at once, measured with full and with reduced effects
+  const stress = async low => {
+    await page.evaluate(low => { const s = window.__broccoli, m = s.match; s.opts.lowFx = low; s.autoLow = false;
+      for (const b of m.buildings) if (b.owner >= 0) b.garrison = 160; }, low);
+    await page.waitForTimeout(7000);
+    return page.evaluate(() => { const s = window.__broccoli; return { ms: s.renderer.frameMs, sprites: s.renderer.drawnSoldiers, armies: s.match.armies.length, units: s.match.players.reduce((n, p) => n + s.match.totalUnits(p.id), 0) }; });
+  };
+  const full = await stress(false), low = await stress(true);
+  const fmt = r => `${r.ms.toFixed(1)} ms (${Math.round(1000 / r.ms)} fps), ${r.sprites} sprites, ${r.armies} armies, ${r.units} units`;
+  check('stress, full effects: frame time', full.ms < 34, fmt(full));
+  check('stress, reduced effects: frame time', low.ms < 34, fmt(low));
+  await page.screenshot({ path: join(shots, '10b-stress.png') });
+
+  // HUD placement: how much of the buildings each layout covers (percent bar left vs right)
+  const overlap = flip => page.evaluate(flip => {
+    const s = window.__broccoli, hud = document.getElementById('hud'); hud.classList.toggle('flip', flip);
+    const boxes = ['pcts', 'btnSync', 'btnAll'].map(id => document.getElementById(id).getBoundingClientRect());
+    const k = s.renderer.scale; let all = 0, mine = 0;
+    for (const [i, b] of s.match.map.buildings.entries()) {
+      const p = s.screenOf(i), r = { l: p.x - 58 * k, r: p.x + 58 * k, t: p.y - 100 * k, b: p.y + 80 * k };
+      for (const q of boxes) { const a = Math.max(0, Math.min(r.r, q.right) - Math.max(r.l, q.left)) * Math.max(0, Math.min(r.b, q.bottom) - Math.max(r.t, q.top)); all += a; if (b.slot === 0) mine += a; }
+    }
+    hud.classList.toggle('flip', s.opts.flipHud);
+    return { all: Math.round(all), mine: Math.round(mine) };
+  }, flip);
+  const oL = await overlap(false), oR = await overlap(true);
+  check('HUD layout measured (px² of buildings covered)', true, `Deep Forest — left: ${oL.all} (own ${oL.mine}), right: ${oR.all} (own ${oR.mine})`);
   check('O: no console errors (phone)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }
@@ -233,6 +302,12 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   check('mouse drag sends an army (default 50%)', s.armies.some(x => x.owner === 0) && s.pct === 50);
   check('reduced-effects setting is applied', await page.evaluate(() => window.__broccoli.lowFx === true));
   await page.screenshot({ path: join(shots, '12-desktop.png') });
+  // experimental road-clash rule: a full match with the rule on
+  await page.click('#btnPause'); await page.click('#btnQuit'); await page.click('#btnSolo'); await page.click('#segClash .segb:nth-child(2)'); await page.click('#btnStart');
+  await page.evaluate(() => { const s = window.__broccoli; s.autoplay('hard', 10); window.__clashes = 0; const m = s.match, step = m.step.bind(m); m.step = () => { step(); for (const e of m.events) if (e.type === 'clash_started') window.__clashes++; }; });
+  await page.waitForFunction(() => window.__broccoli.match.phase === 'ended', null, { timeout: 120000 });
+  const cl = await page.evaluate(() => ({ on: window.__broccoli.match.roadClash, n: window.__clashes, sec: Math.round(window.__broccoli.match.tick / 20) }));
+  check('road-clash rule: full match runs with clashes on the roads', cl.on && cl.n > 0, `${cl.n} clashes, ${cl.sec}s`);
   check('O: no console errors (desktop)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }

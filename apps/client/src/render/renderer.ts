@@ -1,21 +1,21 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
-import { SOLDIER, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, emblemShape, makeSoldierSheets, shadow } from './art';
+import { FALL, SOLDIER, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 
 export interface DragState { sources: number[]; target: number | null; wx: number; wy: number }
 export interface BoxState { x0: number; y0: number; x1: number; y1: number }
 export interface Frame {
-  match: Match; alpha: number; time: number; human: number; pct: number; lowFx: boolean;
+  match: Match; alpha: number; time: number; human: number; pct: number; lowFx: boolean; sync: boolean;
   selection: Set<number>; drag: DragState | null; box: BoxState | null;
-  labels: { attack: string; reinforce: string; capture: string };
+  labels: { attack: string; reinforce: string; capture: string; sec: string };
 }
 interface Particle { on: boolean; x: number; y: number; vx: number; vy: number; g: number; life: number; max: number; size: number; color: string }
 interface Fallen { x: number; y: number; vx: number; vy: number; rot: number; vr: number; t: number; owner: number }
 interface Cheer { x: number; y: number; owner: number; t: number; phase: number }
 interface Pop { x: number; y: number; t: number; text: string; color: string; size: number }
 interface Ring { x: number; y: number; t: number; color: string }
-interface BView { shake: number; flash: number; kick: number; hits: number; hitClock: number; hitColor: string }
-interface AView { ang: number; dust: number; seen: number }
+interface BView { shake: number; flash: number; kick: number; raise: number; hits: number; hitClock: number; hitColor: string }
+interface AView { ang: number; dust: number; seen: number; hitIdx: number; hitUntil: number }
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -60,7 +60,7 @@ export class Renderer {
     this.scale = Math.min(s.width / (x1 - x0), s.height / (y1 - y0));
     this.ox = s.left - c.left + (s.width - (x1 - x0) * this.scale) / 2 - x0 * this.scale;
     this.oy = s.top - c.top + (s.height - (y1 - y0) * this.scale) / 2 - y0 * this.scale;
-    this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, hits: 0, hitClock: 0, hitColor: '#fff' });
+    this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, hits: 0, hitClock: 0, hitColor: '#fff' });
     this.paintBackground(match);
   }
 
@@ -75,7 +75,7 @@ export class Renderer {
     const c = this.bg.getContext('2d')!;
     c.setTransform(1, 0, 0, 1, 0, 0);
     const g = c.createLinearGradient(0, 0, 0, this.bg.height);
-    g.addColorStop(0, forest ? '#4a9a4c' : '#86d062'); g.addColorStop(1, forest ? '#2f7240' : '#5cb04c');
+    g.addColorStop(0, forest ? '#3f8a45' : '#67b34f'); g.addColorStop(1, forest ? '#28633a' : '#4a9a44');
     c.fillStyle = g; c.fillRect(0, 0, this.bg.width, this.bg.height);
     this.world(c);
     const rng = new Rng(map.id.length * 977 + map.buildings.length);
@@ -85,8 +85,21 @@ export class Renderer {
       c.fillStyle = rng.next() < 0.5 ? 'rgba(255,255,170,.07)' : 'rgba(0,60,20,.08)';
       c.beginPath(); c.ellipse(X(), Y() * TILT, rng.range(40, 150), rng.range(16, 55), 0, 0, 7); c.fill();
     }
-    c.fillStyle = 'rgba(255,255,200,.12)';
-    c.beginPath(); c.ellipse(W / 2, (H / 2) * TILT, W * 0.56, H * 0.56 * TILT, 0, 0, 7); c.fill();
+    // terrain layers: the battlefield is a raised meadow with a soft cliff edge, the forest sits on the lower ground
+    const px0 = 55, py0 = 20 * TILT, pw = W - 110, ph = (H - 5) * TILT - py0, rad = 170;
+    c.fillStyle = 'rgba(8,40,18,.30)'; c.beginPath(); c.roundRect(px0 + 6, py0 + 30, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#5d6b3c' : '#8c7c46'; c.beginPath(); c.roundRect(px0, py0 + 18, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#3d7f42' : '#63b04a'; c.beginPath(); c.roundRect(px0, py0 + 9, pw, ph, rad); c.fill();
+    const top = c.createLinearGradient(0, py0, 0, py0 + ph);
+    top.addColorStop(0, forest ? '#5aa752' : '#9ad96a'); top.addColorStop(1, forest ? '#3f8a46' : '#72c257');
+    c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
+    c.strokeStyle = 'rgba(255,255,220,.35)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
+    c.save(); c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.clip();
+    for (let i = 0; i < 60; i++) {
+      c.fillStyle = rng.next() < 0.5 ? 'rgba(255,255,190,.07)' : 'rgba(0,70,25,.06)';
+      c.beginPath(); c.ellipse(rng.range(0, W), rng.range(0, H) * TILT, rng.range(60, 170), rng.range(20, 60), 0, 0, 7); c.fill();
+    }
+    c.restore();
 
     // worn footpaths between neighbouring buildings: shows where armies will walk
     c.lineCap = 'round'; c.lineJoin = 'round';
@@ -97,8 +110,23 @@ export class Renderer {
         c.beginPath(); p.pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke();
       }
     }
+    // packed-earth clearing under every building, so garrison numbers and fights read against a calm ground
+    for (const b of map.buildings) {
+      c.fillStyle = forest ? 'rgba(196,170,110,.42)' : 'rgba(226,204,140,.55)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 92, 50, 0, 0, 7); c.fill();
+      c.fillStyle = forest ? 'rgba(214,190,130,.35)' : 'rgba(240,222,160,.5)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 70, 36, 0, 0, 7); c.fill();
+    }
+    const roads: [Vec, Vec][] = [];
+    for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
+      const p = match.paths[i][j]; if (p.len > VIS.roadMaxLen) continue;
+      for (let k = 1; k < p.pts.length; k++) roads.push([p.pts[k - 1], p.pts[k]]);
+    }
+    const nearRoad = (x: number, y: number) => roads.some(([a, b]) => {
+      const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(a.x + dx * t - x, a.y + dy * t - y) < 26;
+    });
+    // decoration stays off buildings, obstacles and footpaths
     const blocked = (x: number, y: number, pad: number) =>
-      map.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + pad) || map.buildings.some(b => Math.hypot(b.x - x, b.y - y) < 60 + pad);
+      map.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + pad) || map.buildings.some(b => Math.hypot(b.x - x, b.y - y) < 96 + pad) || nearRoad(x, y);
     for (let i = 0; i < 520; i++) {
       const x = X(), y = Y(); if (blocked(x, y, 6)) continue;
       c.strokeStyle = rng.next() < 0.5 ? 'rgba(20,90,35,.5)' : 'rgba(190,235,130,.5)'; c.lineWidth = 2;
@@ -137,9 +165,10 @@ export class Renderer {
         const a = (b.x * 7 + v.hits * 2.4) % 6.28;
         this.burst(b.x + Math.cos(a) * 34, b.y * TILT - 22 + Math.sin(a) * 12, v.hits % 2 ? '#fff6c2' : colorOf(b.owner), this.low ? 1 : 3, 90);
         if (!this.low && v.hits % 3 === 0) this.fall(b.x + Math.cos(a) * 52, b.y * TILT + 10, e.attacker);
+        const av = this.aview.get(e.army); if (av) { av.hitIdx = v.hits; av.hitUntil = performance.now() + 170; }
       } else if (e.type === 'building_captured') {
         const b = match.buildings[e.building], y = b.y * TILT;
-        this.bview[e.building].flash = 1;
+        this.bview[e.building].flash = 1; this.bview[e.building].raise = 0;   // the new flag climbs the pole
         this.rings.push({ x: b.x, y, t: 0, color: colorOf(e.by) });
         this.burst(b.x, y - 40, colorOf(e.by), this.low ? 10 : 30, 170);
         this.burst(b.x, y - 40, '#ffffff', this.low ? 4 : 12, 100);
@@ -153,6 +182,13 @@ export class Renderer {
       } else if (e.type === 'projectile_hit') {
         this.burst(e.x, e.y * TILT - 14, '#f4ecc4', this.low ? 2 : 6, 80);
         this.fall(e.x, e.y * TILT, e.victim);
+      } else if (e.type === 'clash_started') {
+        this.rings.push({ x: e.x, y: e.y * TILT, t: 0.3, color: '#fff6c2' });
+        this.pops.push({ x: e.x, y: e.y * TILT - 70, t: 0, text: '⚔', color: '#fff6c2', size: 1.3 });
+      } else if (e.type === 'clash_hit') {
+        this.burst(e.x, e.y * TILT - 16, '#fff6c2', this.low ? 1 : 3, 90);
+        if (!this.low) this.fall(e.x + (Math.random() - 0.5) * 30, e.y * TILT, e.owner);
+        const av = this.aview.get(e.army); if (av) { av.hitIdx++; av.hitUntil = performance.now() + 170; }
       } else if (e.type === 'army_destroyed') {
         this.burst(e.x, e.y * TILT - 10, colorOf(e.owner), 10, 110);
       } else if (e.type === 'upgraded' || e.type === 'converted') {
@@ -173,7 +209,7 @@ export class Renderer {
   }
   private fall(x: number, y: number, owner: number): void {
     if (this.fallen.length >= VIS.maxFallen) this.fallen.shift();
-    this.fallen.push({ x, y, vx: (Math.random() - 0.5) * 90, vy: -150 - Math.random() * 60, rot: 0, vr: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 5), t: 0, owner });
+    this.fallen.push({ x, y, vx: (Math.random() - 0.5) * 90, vy: -130 - Math.random() * 40, rot: 0, vr: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 5), t: 0, owner });
   }
 
   /** How many soldier sprites stand for a group of `units` (the badge always shows the real number). */
@@ -192,6 +228,7 @@ export class Renderer {
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.drawImage(this.bg, 0, 0);
     this.world(c);
+    if (!this.low) for (const o of m.map.obstacles) if (o.kind === 'pond') drawWater(c, o.x, o.y, o.r, t);
 
     // who is under attack (for warning markers)
     const threatened = new Set<number>();
@@ -237,8 +274,10 @@ export class Renderer {
       const path = m.paths[a.from][a.to].pts;
       let dx = a.x - a.px, dy = a.y - a.py;
       if (dx === 0 && dy === 0) { const n = path.length; dx = path[n - 1].x - path[n - 2].x; dy = path[n - 1].y - path[n - 2].y; }
+      const foe = a.state === 'clashing' ? m.armies.find(x => x.id === a.foe) : undefined;
+      if (foe) { dx = foe.x - a.x; dy = foe.y - a.y; }             // in a road clash the group turns to face its opponent
       const want = Math.atan2(dy, dx);
-      if (!v) { v = { ang: want, dust: 0, seen: 0 }; this.aview.set(a.id, v); }
+      if (!v) { v = { ang: want, dust: 0, seen: 0, hitIdx: 0, hitUntil: 0 }; this.aview.set(a.id, v); }
       let d = want - v.ang; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       v.ang += d * Math.min(1, dt * 9); v.seen = this.frameNo;
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
@@ -261,7 +300,12 @@ export class Renderer {
           const bx = target.x + Math.cos(ang) * rad, by = target.y + Math.sin(ang) * rad * 0.8;
           x += (bx - x) * blend; y += (by - y) * blend;
           if (a.state === 'fighting') { frame = sheet.attack[Math.sin(t * 9 + k * 1.9) > 0.3 ? 1 : 0]; flip = target.x < x; }
+        } else if (foe) {
+          const lunge = Math.max(0, Math.sin(t * 9 + k * 1.9)) * 8;
+          x += cos * lunge; y += sin * lunge;
+          frame = sheet.attack[Math.sin(t * 9 + k * 1.9) > 0.3 ? 1 : 0];
         } else hop = Math.abs(Math.sin(t * 10 + k * 1.7 + a.id)) * 2.5;
+        if (v.hitUntil > now && k === v.hitIdx % n) frame = sheet.hit;   // this one just took a knock
         items.push({ y, kind: 1, ref: a.owner, x, frame, flip, hop });
         soldiers++;
       }
@@ -283,11 +327,12 @@ export class Renderer {
       if (it.kind === 0) {
         const b = m.buildings[it.ref], v = this.bview[it.ref];
         v.shake = Math.max(0, v.shake - dt); v.flash = Math.max(0, v.flash - dt / 0.45); v.kick = Math.max(0, v.kick - dt / 0.22);
+        v.raise = Math.min(1, v.raise + dt / 0.7);
         c.save();
         c.translate(b.x + (v.shake > 0 ? Math.sin(t * 90) * 2.5 : 0), b.y * TILT);
         if (v.kick > 0) c.scale(1 + v.kick * 0.05, 1 - v.kick * 0.07);
         if (b.busyKind) c.globalAlpha = 0.72 + 0.2 * Math.sin(t * 9);
-        drawBuilding(c, b.type, b.level, b.owner, t);
+        drawBuilding(c, b.type, b.level, b.owner, t, v.raise);
         if (v.flash > 0) { c.globalAlpha = v.flash * 0.75; c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0, -40, 58, 62, 0, 0, 7); c.fill(); }
         c.restore();
         if (b.owner >= 0 && !this.low) this.guards(c, b, t, ss);
@@ -301,11 +346,14 @@ export class Renderer {
 
     // soldiers knocked out by towers or in battle tumble away (cartoon, no gore)
     for (const d of this.fallen) {
-      d.t += dt; d.vy += 520 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
-      c.save(); c.globalAlpha = Math.max(0, 1 - d.t / 0.7); c.translate(d.x, d.y - 16); c.rotate(d.rot);
-      c.drawImage(this.sheets[d.owner % 4].run[0], -sw * 0.4, -sh * 0.4, sw * 0.8, sh * 0.8); c.restore();
+      d.t += dt; if (d.t < 0.3) { d.vy += 900 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt; }
+      const sheet = this.sheets[d.owner % 4];
+      c.save(); c.globalAlpha = Math.max(0, Math.min(1, (0.95 - d.t) / 0.3));
+      if (d.t < 0.3) { c.translate(d.x, d.y - 16); c.rotate(d.rot * 0.35); c.drawImage(sheet.hit, -sw * 0.45, -sh * 0.45, sw * 0.9, sh * 0.9); }
+      else c.drawImage(sheet.fall, d.x - FALL.w * ss * 0.45, d.y - FALL.h * ss * 0.7, FALL.w * ss * 0.9, FALL.h * ss * 0.9);   // lies where it landed, then fades
+      c.restore();
     }
-    this.fallen = this.fallen.filter(d => d.t < 0.7);
+    this.fallen = this.fallen.filter(d => d.t < 0.95);
 
     // tower projectiles: drawn straight from simulation state, so what you see is what deals the damage
     for (const s of m.projectiles) {
@@ -398,6 +446,17 @@ export class Renderer {
         v.hits = 0; v.hitClock = 0;
       }
     }
+    // synchronized orders waiting to launch: countdown ring and seconds over the waiting building
+    for (const o of m.pending) {
+      if (o.owner !== f.human) continue;
+      const b = m.buildings[o.from], yy = b.y * TILT - buildingTop(b.type, b.level) - 24;
+      const k = Math.max(0, Math.min(1, (m.tick + f.alpha - o.orderTick) / Math.max(1, o.launchTick - o.orderTick)));
+      c.lineWidth = 7; c.strokeStyle = 'rgba(0,0,0,.5)'; c.beginPath(); c.arc(b.x, yy, 17, 0, 7); c.stroke();
+      c.strokeStyle = '#8fd8ff'; c.beginPath(); c.arc(b.x, yy, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); c.stroke();
+      c.font = `800 ${fs * 0.72}px system-ui, sans-serif`; c.fillStyle = '#fff';
+      c.fillText(((o.launchTick - m.tick) / m.bal.tickRate).toFixed(1), b.x, yy + 1);
+      c.font = `800 ${fs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    }
     // army badges: the real number of units in the group, with the team shape
     const afs = Math.max(21, VIS.badgeMinPx / this.scale);
     c.font = `800 ${afs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
@@ -442,16 +501,19 @@ export class Renderer {
     const m = f.match, d = f.drag!;
     const fs = Math.max(24, VIS.badgeMinPx / this.scale);
     c.font = `800 ${fs}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-    let total = 0;
-    for (const id of d.sources) {
-      if (id === d.target) continue;
+    let total = 0, far = 0;
+    const srcs = d.sources.filter(id => id !== d.target);
+    if (d.target !== null) for (const id of srcs) far = Math.max(far, m.eta(id, d.target, f.human));
+    for (const id of srcs) {
       const b = m.buildings[id], n = m.sendCount(b, f.pct); total += n;
-      this.pill(c, b.x, b.y * TILT - buildingTop(b.type, b.level) - 34, '→ ' + n, fs, '#fff', '#143d22', null, '#143d22');
+      // with a synchronized order, nearer buildings show how long they will wait before leaving
+      const wait = f.sync && d.target !== null && srcs.length > 1 ? far - m.eta(id, d.target, f.human) : 0;
+      this.pill(c, b.x, b.y * TILT - buildingTop(b.type, b.level) - 34, wait > 0.25 ? `→ ${n} · +${wait.toFixed(1)}${f.labels.sec}` : '→ ' + n, fs, '#fff', '#143d22', null, '#143d22');
     }
     if (d.target === null) return;
     const tb = m.buildings[d.target], friendly = m.sameTeam(tb.owner, f.human);
     const wins = !friendly && m.predict(f.human, tb, total) > 0;
-    const text = `${friendly ? f.labels.reinforce : wins ? f.labels.capture : f.labels.attack} ${total}`;
+    const text = `${friendly ? f.labels.reinforce : wins ? f.labels.capture : f.labels.attack} ${total} · ${far.toFixed(1)}${f.labels.sec}`;
     c.font = `900 ${fs * 1.1}px system-ui, sans-serif`;
     this.pill(c, tb.x, tb.y * TILT - buildingTop(tb.type, tb.level) - 40, text, fs * 1.1,
       friendly ? '#1f8f4a' : wins ? '#d98a00' : '#c23a34', '#fff', null);

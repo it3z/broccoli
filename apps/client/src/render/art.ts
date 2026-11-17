@@ -17,13 +17,17 @@ export function shadow(c: Ctx, x: number, y: number, rx: number, ry: number, a =
   c.fillStyle = `rgba(10,30,15,${a})`; ell(c, x, y, rx, ry); c.fill();
 }
 
+let flagRaise = 1; // 0..1: how far up the pole the flag is (animated when a building changes owner)
 function flag(c: Ctx, x: number, y: number, owner: number, t: number) {
   c.strokeStyle = '#5b4a2e'; c.lineWidth = 3; c.lineCap = 'round';
   c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 30); c.stroke();
   const w = Math.sin(t * 5 + x) * 3;
+  c.save(); c.translate(0, (1 - flagRaise) * 17);
   c.fillStyle = colorOf(owner); c.strokeStyle = darkOf(owner); c.lineWidth = 1.5;
   c.beginPath(); c.moveTo(x, y - 30); c.quadraticCurveTo(x + 12, y - 30 + w, x + 22, y - 23 + w); c.quadraticCurveTo(x + 11, y - 18 + w, x, y - 15); c.closePath();
   c.fill(); c.stroke();
+  emblemShape(c, x + 8, y - 23 + w * 0.5, 2.6, owner, owner < 0 ? '#857f6c' : '#fff');
+  c.restore();
 }
 
 function baseRing(c: Ctx, owner: number) {
@@ -127,7 +131,8 @@ function forge(c: Ctx, owner: number, t: number) {
   flag(c, -16, -40, owner, t);
 }
 
-export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: number, t: number) {
+export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: number, t: number, raise = 1) {
+  flagRaise = raise;
   shadow(c, 6, 4, 46, 17);
   baseRing(c, owner);
   if (type === 'farm') farm(c, level, owner, t); else if (type === 'tower') tower(c, level, owner, t); else forge(c, owner, t);
@@ -135,14 +140,15 @@ export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: n
 export const buildingTop = (type: BuildingType, level: number) => (type === 'farm' ? 80 + level * 12 : type === 'tower' ? 80 + level * 9 : 62);
 
 export const SOLDIER = { w: 34, h: 42, run: 4, attack: 2 };
-export interface SoldierSheet { run: HTMLCanvasElement[]; attack: HTMLCanvasElement[] }
+export interface SoldierSheet { run: HTMLCanvasElement[]; attack: HTMLCanvasElement[]; hit: HTMLCanvasElement; fall: HTMLCanvasElement }
+export const FALL = { w: 46, h: 30 };
 
 /**
  * Original broccoli soldier, pre-rendered per team: floret head, stalk body, team tunic and shield, leaf-tipped spear.
  * run[0..3] is the march cycle (run[0] doubles as idle), attack[0..1] is wind-up and thrust.
  */
 export function makeSoldierSheets(scale: number): SoldierSheet[] {
-  const draw = (team: number, leg: number, bob: number, thrust: number): HTMLCanvasElement => {
+  const draw = (team: number, leg: number, bob: number, thrust: number, dazed = false): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(SOLDIER.w * scale); cv.height = Math.ceil(SOLDIER.h * scale);
     const c = cv.getContext('2d')!; c.scale(scale, scale); c.lineJoin = 'round'; c.lineCap = 'round';
     const col = TEAM[team], dark = TEAM_DARK[team], y = bob;
@@ -164,8 +170,13 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.fillStyle = dark; circ(c, 9, 26 + y, 6.2); c.fill(); c.fillStyle = col; circ(c, 9, 26 + y, 4.9); c.fill();
     emblemShape(c, 9, 26 + y, 2.6, team, '#fff');
     // face
-    c.fillStyle = '#fff'; circ(c, 15.5, 19.5 + y, 2.3); c.fill(); circ(c, 20.3, 19.5 + y, 2.1); c.fill();
-    c.fillStyle = '#16210f'; circ(c, 16.3, 19.8 + y, 1.15); c.fill(); circ(c, 20.9, 19.8 + y, 1.05); c.fill();
+    if (dazed) {   // knocked silly: crossed eyes, no blood
+      c.strokeStyle = '#16210f'; c.lineWidth = 1.3;
+      for (const ex of [15.5, 20.3]) { c.beginPath(); c.moveTo(ex - 1.8, 17.8 + y); c.lineTo(ex + 1.8, 21.2 + y); c.moveTo(ex + 1.8, 17.8 + y); c.lineTo(ex - 1.8, 21.2 + y); c.stroke(); }
+    } else {
+      c.fillStyle = '#fff'; circ(c, 15.5, 19.5 + y, 2.3); c.fill(); circ(c, 20.3, 19.5 + y, 2.1); c.fill();
+      c.fillStyle = '#16210f'; circ(c, 16.3, 19.8 + y, 1.15); c.fill(); circ(c, 20.9, 19.8 + y, 1.05); c.fill();
+    }
     // broccoli head with a team headband
     for (const [fx, fy, fr] of [[9.5, 11, 6], [22.5, 11, 6], [16, 7.5, 7.5], [12, 13, 5], [20, 13, 5]] as const) {
       c.fillStyle = '#1f6a2e'; circ(c, fx, fy + y + 0.8, fr); c.fill();
@@ -175,10 +186,20 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.fillStyle = col; c.strokeStyle = dark; c.lineWidth = 0.8; c.beginPath(); c.roundRect(9.5, 15 + y, 13.5, 3, 1.5); c.fill(); c.stroke();
     return cv;
   };
-  return TEAM.map((_, i) => ({
-    run: [draw(i, 1, 0, 0), draw(i, 0.2, -1.5, 0), draw(i, -1, 0, 0), draw(i, -0.2, -1.5, 0)],
-    attack: [draw(i, 0.6, 0, -0.5), draw(i, -0.6, 1, 1)],
-  }));
+  const lying = (src: HTMLCanvasElement): HTMLCanvasElement => {
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(FALL.w * scale); cv.height = Math.ceil(FALL.h * scale);
+    const c = cv.getContext('2d')!; c.scale(scale, scale);
+    c.translate(4, 27); c.rotate(-Math.PI / 2 * 0.94); c.drawImage(src, -6, 0, SOLDIER.w, SOLDIER.h);
+    return cv;
+  };
+  return TEAM.map((_, i) => {
+    const hit = draw(i, 0.9, 1.5, -0.8, true);
+    return {
+      run: [draw(i, 1, 0, 0), draw(i, 0.2, -1.5, 0), draw(i, -1, 0, 0), draw(i, -0.2, -1.5, 0)],
+      attack: [draw(i, 0.6, 0, -0.5), draw(i, -0.6, 1, 1)],
+      hit, fall: lying(hit),
+    };
+  });
 }
 
 export function drawPond(c: Ctx, x: number, y: number, r: number) {
@@ -214,4 +235,21 @@ export function drawTree(c: Ctx, x: number, y: number, s: number, dark: boolean)
   c.fillStyle = cols[0]; circ(c, x, y - 50 * s, 30 * s); c.fill();
   c.fillStyle = cols[1]; circ(c, x - 14 * s, y - 44 * s, 20 * s); c.fill(); circ(c, x + 14 * s, y - 46 * s, 20 * s); c.fill();
   c.fillStyle = cols[2]; circ(c, x - 6 * s, y - 62 * s, 17 * s); c.fill();
+}
+
+/** Calm moving water: drifting ripples and a glint, drawn every frame over the painted pond. */
+export function drawWater(c: Ctx, x: number, y: number, r: number, t: number) {
+  const py = y * TILT, ry = r * TILT;
+  c.save(); c.beginPath(); c.ellipse(x, py, r - 2, ry - 2, 0, 0, Math.PI * 2); c.clip();
+  c.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const k = ((t * 0.16 + i / 3) % 1), rr = 6 + k * r * 0.95;
+    c.strokeStyle = `rgba(255,255,255,${0.32 * (1 - k)})`; c.lineWidth = 2;
+    c.beginPath(); c.ellipse(x + r * 0.15, py + ry * 0.1, rr, rr * TILT, 0, 0, Math.PI * 2); c.stroke();
+  }
+  const gx = x - r * 0.3 + Math.sin(t * 0.7) * r * 0.25;
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2.5;
+  c.beginPath(); c.moveTo(gx - 10, py - ry * 0.35); c.lineTo(gx + 8, py - ry * 0.35); c.stroke();
+  c.beginPath(); c.moveTo(gx + 14, py - ry * 0.18); c.lineTo(gx + 24, py - ry * 0.18); c.stroke();
+  c.restore();
 }
