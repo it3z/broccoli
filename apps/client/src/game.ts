@@ -171,7 +171,10 @@ export class Session {
     }
     // tower draw creak a few ticks before a shot, footsteps under one marching squad at a time
     for (const b of m.buildings) if (b.type === 'tower' && b.owner >= 0 && b.cooldown === 4 && m.armies.some(a => !m.sameTeam(a.owner, b.owner) && (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= m.towerRange(b) ** 2)) sfx.towerDraw(bx(b.id));
-    if (m.tick % 7 === 0) { const mv = m.armies.filter(a => a.state === 'moving'); if (mv.length) sfx.steps(this.pan(mv[(m.tick / 7) % mv.length | 0].x)); }
+    if (m.tick % 7 === 0) {
+      const mv = m.armies.filter(a => a.state === 'moving');
+      if (mv.length) { const a = mv[(m.tick / 7) % mv.length | 0]; sfx.steps(this.pan(a.x), (m.map.bridges ?? []).some(br => Math.hypot(br.x - a.x, br.y - a.y) < 62)); }
+    }
     // music follows the fight: more squads and battles bring the second layer in, and it settles slowly afterwards
     if (m.tick % 10 === 0) setIntensity(m.armies.length * 0.1 + m.armies.filter(a => a.state !== 'moving').length * 0.3);
     // one alert per newly threatened building, never more often than every few seconds
@@ -371,7 +374,10 @@ export class Session {
     this.set('units', '🥦 ' + m.totalUnits(this.human));
     // strength bar: every team's troops as a share of all troops on the board
     const teams = [...new Set(m.players.map(p => p.team))], tot = teams.map(tm => m.players.filter(p => p.team === tm).reduce((n, p) => n + m.totalUnits(p.id), 0));
-    this.set('power', teams.map((tm, i) => `<i style="flex-grow:${tot[i] + 1};background:${colorOf(m.players.find(p => p.team === tm)!.id)}"></i>`).join(''), true);
+    // whole percents only, and the bars are reused: the HUD is not rebuilt every time one unit is produced
+    const all = tot.reduce((x, y) => x + y, 0) || 1, bar = $('power');
+    if (bar.children.length !== teams.length) bar.innerHTML = teams.map(tm => `<i style="background:${colorOf(m.players.find(p => p.team === tm)!.id)}"></i>`).join('');
+    tot.forEach((n, i) => { const g = String(Math.max(1, Math.round((n / all) * 100))), el = bar.children[i] as HTMLElement; if (el.style.flexGrow !== g) el.style.flexGrow = g; });
     this.set('income', '+' + m.income(this.human).toFixed(1) + '/s');
     const fc = m.forgeCount(this.human);
     this.set('forgeStat', fc ? `☀️ +${Math.round(fc * m.bal.forge.attackBonus * 100)}%` : '');

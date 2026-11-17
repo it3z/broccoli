@@ -1,6 +1,7 @@
 // Original procedural art for BROCCOLI. Everything is drawn with canvas paths; no external assets.
 import type { BuildingType } from '../../../../packages/simulation/src/index';
 
+import { artFor, frameOf } from './artpack';
 export const TILT = 0.78; // vertical squash of the ground plane (2.5D look)
 // emerald (player) is pushed toward blue-green so it separates from the olive meadow; crimson enemy; stone neutral
 export const TEAM = ['#12c98f', '#e43b4b', '#3b9eff', '#a070ff'];
@@ -81,9 +82,9 @@ function flag(c: Ctx, x: number, y: number, _owner: number, t: number) {
  */
 function foundation(c: Ctx, type: BuildingType, owner: number) {
   if (owner >= 0) {
-    const g = c.createRadialGradient(0, 0, 8, 0, 0, 74);
-    g.addColorStop(0, hexA(TEAM[owner % 4], 0.5)); g.addColorStop(1, hexA(TEAM[owner % 4], 0));
-    c.save(); c.scale(1, 0.5); c.fillStyle = g; circ(c, 0, 0, 74); c.fill(); c.restore();
+    const g = c.createRadialGradient(0, 0, 8, 0, 0, 66);
+    g.addColorStop(0, hexA(TEAM[owner % 4], 0.26)); g.addColorStop(1, hexA(TEAM[owner % 4], 0));
+    c.save(); c.scale(1, 0.5); c.fillStyle = g; circ(c, 0, 0, 66); c.fill(); c.restore();
   }
   if (type === 'farm') {
     c.fillStyle = '#b8995f'; c.beginPath(); c.moveTo(-50, 2); c.bezierCurveTo(-52, -16, -18, -24, 6, -22); c.bezierCurveTo(40, -21, 56, -8, 50, 6); c.bezierCurveTo(44, 20, -40, 22, -50, 2); c.fill();
@@ -219,6 +220,8 @@ function tower(c: Ctx, level: number, owner: number, t: number) {
   flag(c, -7, -h - 4, owner, t);
   // launcher head: turns toward the enemy, pulls back before a shot
   c.save(); c.translate(0, -h - 9);
+  const head = artFor(towerTension > 0.5 ? 'tower_head_drawn' : 'tower_head', owner) ?? artFor('tower_head', owner);
+  if (head) { c.rotate(towerAim); c.drawImage(head, -24, -24, 48, 48); c.restore(); return; }
   c.fillStyle = dull ? '#6f7b63' : '#2c5a26'; circ(c, 0, 2, 11); c.fill();
   c.fillStyle = dull ? '#93a086' : '#4f8f3d'; circ(c, -2, -1, 8); c.fill();
   c.rotate(towerAim);
@@ -272,6 +275,8 @@ const bodyCache = new Map<string, HTMLCanvasElement>();
 const BOX = { w: 250, h: 280, cx: 125, cy: 222 };
 export function clearBuildingCache(): void { bodyCache.clear(); }
 function body(c: Ctx, type: BuildingType, level: number, owner: number, t: number, low: boolean) {
+  const art = artFor(`${type}_${type === 'forge' ? 1 : level}`, owner);
+  if (art && pass === STATIC) { c.drawImage(art, -BOX.cx, -BOX.cy, BOX.w, BOX.h); return; }   // painted body from the art pack
   shadow(c, 9, 5, 58, 19, 0.2);                 // soft cast shadow
   if (!low) shadow(c, 0, 2, 44, 13, 0.3);       // tight contact shadow: the building sits on the ground
   foundation(c, type, owner);
@@ -294,6 +299,14 @@ export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: n
   if (type === 'farm') farm(c, level, owner, t); else if (type === 'tower') tower(c, level, owner, t); else forge(c, owner, t);
   pass = ALL;
 }
+/** The static body of a building as the art pack slot sees it (BOX-sized canvas at `S`x), for scripts/export-art.mjs. */
+export function staticBody(type: BuildingType, level: number, owner: number, S: number): HTMLCanvasElement {
+  const img = document.createElement('canvas'); img.width = Math.ceil(BOX.w * S); img.height = Math.ceil(BOX.h * S);
+  const cc = img.getContext('2d')!; cc.scale(S, S); cc.translate(BOX.cx, BOX.cy);
+  pass = STATIC; paintOwner = owner; body(cc, type, level, owner, 0, false); pass = ALL;
+  return img;
+}
+export const BUILDING_BOX = BOX;
 export const buildingTop = (type: BuildingType, level: number) => (type === 'farm' ? 96 + level * 5 + (level >= 4 ? 14 : 0) : type === 'tower' ? 112 + level * 9 : 82);
 
 export const SOLDIER = { w: 34, h: 42, run: 4, attack: 2 };
@@ -345,17 +358,19 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.fillStyle = '#dfe8b4'; c.strokeStyle = '#7d8f4f'; c.lineWidth = 1.2;
     c.beginPath(); c.roundRect(10, 17 + y, 12, 15, 5); c.fill(); c.stroke();
     c.fillStyle = col; c.strokeStyle = dark; c.beginPath(); c.roundRect(9.5, 23 + y, 13, 8.5, 3); c.fill(); c.stroke();
-    // leaf shield with the team shape (on the back when walking away)
-    if (view !== 2) {
-    c.fillStyle = dark; c.beginPath(); c.moveTo(9, 18.5 + y); c.quadraticCurveTo(17, 25 + y, 9, 34 + y); c.quadraticCurveTo(1, 25 + y, 9, 18.5 + y); c.fill();
-    c.fillStyle = col; c.beginPath(); c.moveTo(9, 20 + y); c.quadraticCurveTo(15.3, 25.5 + y, 9, 32.5 + y); c.quadraticCurveTo(2.7, 25.5 + y, 9, 20 + y); c.fill();
-    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(9, 21 + y); c.lineTo(9, 31.5 + y); c.stroke();
-    emblemShape(c, 9, 26 + y, 2.3, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
-    } else {
-      c.fillStyle = dark; c.beginPath(); c.moveTo(16, 18 + y); c.quadraticCurveTo(26, 25 + y, 16, 35 + y); c.quadraticCurveTo(6, 25 + y, 16, 18 + y); c.fill();
-      c.fillStyle = col; c.beginPath(); c.moveTo(16, 19.5 + y); c.quadraticCurveTo(24, 25.5 + y, 16, 33.5 + y); c.quadraticCurveTo(8, 25.5 + y, 16, 19.5 + y); c.fill();
-      emblemShape(c, 16, 26 + y, 2.6, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
-    }
+    // armour: a team tunic with a dark belt and a shoulder plate
+    c.fillStyle = 'rgba(40,25,10,.75)'; c.fillRect(10, 27.5 + y, 12, 1.8);
+    c.fillStyle = '#b9b29a'; c.strokeStyle = '#6e6650'; c.lineWidth = 0.8; c.beginPath(); c.ellipse(20.5, 19.5 + y, 3.2, 2.2, -0.3, 0, Math.PI * 2); c.fill(); c.stroke();
+    // round wooden shield faced in the team colour with the team emblem (slung on the back when walking away)
+    const shield = (sx: number, sy: number, r: number) => {
+      c.fillStyle = '#5a3b1e'; circ(c, sx + 0.6, sy + 0.8, r + 1.2); c.fill();
+      c.fillStyle = '#a77a45'; circ(c, sx, sy, r + 1.1); c.fill();
+      c.fillStyle = col; circ(c, sx, sy, r); c.fill();
+      c.fillStyle = dark; c.beginPath(); c.arc(sx, sy, r, 0.2, Math.PI * 0.95); c.lineTo(sx, sy); c.closePath(); c.globalAlpha = 0.35; c.fill(); c.globalAlpha = 1;
+      c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 0.9; c.beginPath(); c.arc(sx, sy, r - 0.8, Math.PI * 1.05, Math.PI * 1.6); c.stroke();
+      emblemShape(c, sx, sy, r * 0.42, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
+    };
+    if (view !== 2) shield(view === 1 ? 10 : 9, 26.5 + y, 6.4); else shield(16, 25.5 + y, 6.8);
     // face
     if (dazed) {   // knocked silly: crossed eyes, no blood
       c.strokeStyle = '#16210f'; c.lineWidth = 1.3;
@@ -384,6 +399,15 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
   };
   // sheets 0-3 are the teams, sheet 4 is the neutral (stone) garrison
   return [0, 1, 2, 3, 4].map(i => {
+    const strip = artFor('soldier', i < 4 ? i : -1);
+    if (strip) {   // painted strip: run side x4, run front x4, run back x4, attack x2, hit (15 frames of 34x42)
+      const f = (k: number) => grounded(frameOf(strip, k, SOLDIER.w, SOLDIER.h, scale), i, scale);
+      const fallArt = artFor('soldier_fall', i < 4 ? i : -1), hit = f(14);
+      return {
+        run: [0, 1, 2, 3].map(f), runF: [4, 5, 6, 7].map(f), runB: [8, 9, 10, 11].map(f), attack: [f(12), f(13)], hit,
+        fall: fallArt ? frameOf(fallArt, 0, FALL.w, FALL.h, scale) : lying(hit),
+      };
+    }
     const hit = draw(i, 0.9, 1.5, -0.8, true);
     return {
       run: [draw(i, 1, 0, 0), draw(i, 0.2, -1.5, 0), draw(i, -1, 0, 0), draw(i, -0.2, -1.5, 0)],

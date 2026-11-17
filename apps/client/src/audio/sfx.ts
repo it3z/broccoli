@@ -2,12 +2,13 @@
 // Three buses with their own switches: music (layered), ambience (wind, birds, water) and effects (panned, voice-limited).
 type Bus = 'music' | 'amb' | 'fx';
 let ac: AudioContext | null = null;
-let master: GainNode, buses: Record<Bus, GainNode>, layerB: GainNode, noiseBuf: AudioBuffer;
+let master: GainNode, post: GainNode, buses: Record<Bus, GainNode>, layerB: GainNode, noiseBuf: AudioBuffer;
 const on: Record<Bus, boolean> = { music: true, amb: true, fx: true };
 // default mix: effects lead, music and ambience sit under them (each adjustable 0..1 in Settings)
 const LEVEL: Record<Bus, number> = { music: 0.55, amb: 0.6, fx: 1 };
 let voices = 0;
 const MAX_VOICES = 9;
+const MAKEUP = 2.6;
 const lastAt: Record<string, number> = {};
 let musicTimer = 0, beat = 0, nextBeat = 0, intensity = 0;
 let scene: { birds: boolean; water: boolean } | null = null, ambNodes: AudioNode[] = [], birdTimer = 0;
@@ -19,7 +20,9 @@ function init(): void {
   ac = new Ctor();
   // a gentle compressor on the master keeps several simultaneous battles from piling up into distortion
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
-  master = ac.createGain(); master.gain.value = 0.9; master.connect(comp).connect(ac.destination);
+  // make-up gain after the compressor sets the game's overall loudness (measured: about -20 dB mean in a busy fight, peaks under -1 dB)
+  master = ac.createGain(); master.gain.value = 1;
+  post = ac.createGain(); post.gain.value = MAKEUP; master.connect(comp).connect(post).connect(ac.destination);
   const mk = (b: Bus) => { const g = ac!.createGain(); g.gain.value = on[b] ? LEVEL[b] : 0; g.connect(master); return g; };
   buses = { music: mk('music'), amb: mk('amb'), fx: mk('fx') };
   layerB = ac.createGain(); layerB.gain.value = 0; layerB.connect(buses.music);
@@ -99,10 +102,14 @@ export const sfx = {
   /** A squad leaves its building: two-note horn. */
   march: (pan = 0) => { if (gate('march', 0.12, 2)) { tone(196, 0.09, 'triangle', 0.08, { pan }); tone(262, 0.12, 'triangle', 0.08, { pan, delay: 0.08 }); } },
   queued: () => { if (gate('queued', 0.05)) tone(880, 0.05, 'sine', 0.06); },
-  /** Soft footsteps of a marching squad; pitch and timing vary so they never loop audibly. */
-  steps: (pan = 0) => {
-    if (!gate('steps', 0.42, 1, 0.3)) return;
-    for (let i = 0; i < 2; i++) noise(0.045, rnd(0.022, 0.035), 'lowpass', rnd(600, 1000), { pan, delay: i * rnd(0.07, 0.1) });
+  /** Footsteps of a marching squad: soft thuds on dirt, hollow wooden knocks on a bridge; pitch and timing vary. */
+  steps: (pan = 0, wood = false) => {
+    if (!gate(wood ? 'wood' : 'steps', wood ? 0.3 : 0.42, 1, 0.3)) return;
+    for (let i = 0; i < (wood ? 3 : 2); i++) {
+      const delay = i * rnd(0.07, 0.11);
+      if (wood) { tone(rnd(230, 300), 0.06, 'triangle', 0.05, { pan, delay, slide: -70 }); noise(0.04, 0.03, 'bandpass', rnd(1100, 1500), { pan, delay, q: 4 }); }
+      else noise(0.05, rnd(0.03, 0.045), 'lowpass', rnd(420, 700), { pan, delay });
+    }
   },
   /** Battle blow: a wooden knock plus a rustle of leaves, four pitch variations. */
   hit: (pan = 0) => {
@@ -116,8 +123,20 @@ export const sfx = {
   /** ...release... */
   shot: (pan = 0) => { if (gate('shot', 0.1, 1, 0.15)) { tone(rnd(640, 760), 0.09, 'triangle', 0.06, { slide: -430, pan }); noise(0.06, 0.03, 'bandpass', 2200, { pan, sweep: -1200 }); } },
   /** ...and impact. */
-  impact: (pan = 0) => { if (gate('impact', 0.1, 1, 0.15)) { tone(150, 0.09, 'sine', 0.08, { slide: -80, pan }); noise(0.07, 0.035, 'lowpass', 900, { pan }); } },
-  capture: (pan = 0) => { if (gate('capture', 0.15, 3, 0.5)) { tone(523, 0.11, 'triangle', 0.12, { pan }); tone(659, 0.11, 'triangle', 0.12, { pan, delay: 0.09 }); tone(784, 0.22, 'triangle', 0.13, { pan, delay: 0.18 }); } },
+  impact: (pan = 0) => {   // sharp crack of the thorn landing, then a body thump: unlike any blow at a building
+    if (!gate('impact', 0.1, 2, 0.2)) return;
+    noise(0.03, 0.09, 'bandpass', 3400, { pan, q: 3 });
+    tone(120, 0.14, 'sine', 0.13, { slide: -70, pan, delay: 0.01 });
+    noise(0.09, 0.04, 'lowpass', 700, { pan, delay: 0.01 });
+  },
+  capture: (pan = 0) => {   // flag snap, rising horn call and a small cheer; the music ducks so it is always heard
+    if (!gate('capture', 0.15, 4, 0.7)) return;
+    duck();
+    noise(0.12, 0.06, 'bandpass', 1800, { pan, sweep: 2400, q: 1.5 });
+    [523, 659, 784].forEach((f, i) => tone(f, i === 2 ? 0.3 : 0.12, 'triangle', 0.15, { pan, delay: 0.06 + i * 0.09 }));
+    tone(1047, 0.28, 'sine', 0.06, { pan, delay: 0.33 });
+    noise(0.45, 0.035, 'bandpass', 900, { pan, delay: 0.3, q: 0.7 });
+  },
   /** One of your buildings fell: a different, darker cue, and the music ducks. */
   lost: (pan = 0) => { if (gate('lost', 0.15, 3, 0.6)) { duck(); tone(392, 0.16, 'sawtooth', 0.07, { pan, slide: -60 }); tone(311, 0.3, 'sawtooth', 0.07, { pan, delay: 0.15, slide: -90 }); tone(98, 0.35, 'sine', 0.12, { pan, delay: 0.15 }); } },
   defended: (pan = 0) => { if (gate('defended', 0.2, 2)) { tone(440, 0.09, 'triangle', 0.09, { pan }); tone(554, 0.14, 'triangle', 0.09, { pan, delay: 0.08 }); } },
@@ -194,7 +213,7 @@ function pump(): void {
 (window as unknown as { __broccoliAudio: unknown }).__broccoliAudio = {
   startRecording(): number {
     unlockAudio(); if (!ac) return 0;
-    recDest = ac.createMediaStreamDestination(); master.connect(recDest);
+    recDest = ac.createMediaStreamDestination(); post.connect(recDest);
     recChunks = []; recorder = new MediaRecorder(recDest.stream);
     recorder.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
     recorder.start(250);
@@ -203,7 +222,7 @@ function pump(): void {
   stopRecording(): Promise<string | null> {
     return new Promise(res => {
       if (!recorder) return res(null);
-      recorder.onstop = () => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(new Blob(recChunks, { type: recorder!.mimeType })); if (recDest) master.disconnect(recDest); };
+      recorder.onstop = () => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(new Blob(recChunks, { type: recorder!.mimeType })); if (recDest) post.disconnect(recDest); };
       recorder.stop();
     });
   },

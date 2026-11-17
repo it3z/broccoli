@@ -1,0 +1,21 @@
+{
+  "about": "BROCCOLI art pack slots. Put PNG files (transparent background) directly in packages/content/art/; the build inlines them and each one replaces the procedural drawing of its slot. Missing files fall back to the procedural art.",
+  "units": "w/h/pivot are in world units (1x). Supply files at the listed scale (3x or 4x): the game reads the scale from the file's height.",
+  "camera": { "view": "three-quarter top-down, ground plane squashed to 0.78 (camera about 51 degrees above the ground)", "light": "key light from the upper-left (about 10 o'clock, 45 degrees up); shadows fall to the lower-right" },
+  "owners": "Either one file per owner: <id>@0.png (green), <id>@1.png (red), <id>@2.png (blue), <id>@3.png (purple), <id>@n.png (neutral stone/grey) - or one neutral <id>.png plus a grayscale <id>_team.png mask (white = team colour, black = keep) that the game tints.",
+  "slots": [
+    { "id": "farm_1", "what": "Sprout Village, level 1", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222], "includes": "building + its own ground (yard, steps) + contact shadow; no flag", "flag": "drawn live by the game on the roof peak; keep the peak where the template has it" },
+    { "id": "farm_2", "what": "Sprout Village, level 2 (adds a side wing)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "farm_3", "what": "Sprout Village, level 3 (second wing + fence)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "farm_4", "what": "Sprout Village, level 4 (taller crown, golden finial)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "tower_1", "what": "Thorn Tower body, level 1, stone base on a rock outcrop; no launcher head", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222], "headAnchor": "[0, -(75 + 9*level)] world units from the pivot" },
+    { "id": "tower_2", "what": "Thorn Tower body, level 2 (throwing platform)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "tower_3", "what": "Thorn Tower body, level 3 (wider platform, more thorns)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "tower_4", "what": "Thorn Tower body, level 4 (stone crown)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222] },
+    { "id": "tower_head", "what": "Launcher head seen from above, pointing RIGHT (+x); rotated by the game toward the target", "w": 48, "h": 48, "scale": 3, "pivot": [24, 24] },
+    { "id": "tower_head_drawn", "what": "Same head, string pulled back just before a shot (optional)", "w": 48, "h": 48, "scale": 3, "pivot": [24, 24] },
+    { "id": "forge_1", "what": "Sun Forge with a lit furnace mouth (the fire, embers and smoke are animated by the game)", "w": 250, "h": 280, "scale": 3, "pivot": [125, 222], "fireAnchor": [-4, -9] },
+    { "id": "soldier", "what": "Broccoli soldier strip, 15 frames of 34x42 left to right: run side x4 (facing RIGHT), run toward camera x4, run away x4, attack wind-up, attack thrust, hit", "w": 510, "h": 42, "frame": [34, 42], "scale": 4, "pivot": [17, 39], "rules": "same feet line in every frame; shield with team emblem on the camera side; leave the ground shadow out (the game adds it)" },
+    { "id": "soldier_fall", "what": "Knocked-out soldier lying on the ground (cartoon, no gore)", "w": 46, "h": 30, "scale": 4, "pivot": [23, 24] }
+  ]
+}

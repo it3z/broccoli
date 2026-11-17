@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { artPack } from './artpack-plugin.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // build id: package version + UTC time + the commit the build was made from
@@ -16,7 +17,7 @@ const port = Number(process.env.PORT || 5173);
 const ctx = await context({
   entryPoints: [join(root, 'apps/client/src/main.ts')],
   define: { __BUILD__: JSON.stringify(BUILD) },
-  loader: { '.png': 'dataurl' },
+  loader: { '.png': 'dataurl' }, plugins: [artPack(root)],
   bundle: true, sourcemap: 'inline', format: 'iife', target: ['es2020', 'safari15'],
   outfile: join(root, 'dist/app.js'), logLevel: 'info',
 });

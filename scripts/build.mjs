@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { artPack } from './artpack-plugin.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // build id: package version + UTC time + the commit the build was made from
@@ -16,7 +17,7 @@ mkdirSync(out, { recursive: true });
 await build({
   entryPoints: [join(root, 'apps/client/src/main.ts')],
   define: { __BUILD__: JSON.stringify(BUILD) },
-  loader: { '.png': 'dataurl' },
+  loader: { '.png': 'dataurl' }, plugins: [artPack(root)],
   bundle: true, minify: true, format: 'iife', target: ['es2020', 'safari15'],
   outfile: join(out, 'app.js'), logLevel: 'info',
 });

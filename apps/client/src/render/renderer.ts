@@ -1,4 +1,5 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
+import { artPackNames, loadArtPack } from './artpack';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 import { loadTextures, texture } from './textures';
@@ -16,7 +17,7 @@ interface Cheer { x: number; y: number; owner: number; t: number; phase: number 
 interface Pop { x: number; y: number; t: number; text: string; color: string; size: number }
 interface Ring { x: number; y: number; t: number; color: string }
 interface BView { shake: number; flash: number; kick: number; raise: number; prevOwner: number; aim: number; tension: number; hits: number; hitClock: number; hitColor: string }
-interface AView { ang: number; dust: number; seen: number; hitIdx: number; hitUntil: number; flash: number }
+interface AView { ang: number; dust: number; seen: number; hitIdx: number; hitUntil: number; flash: number; qb: number }
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -38,6 +39,7 @@ export class Renderer {
   private last = 0;
   private frameNo = 0;
   private low = false;
+  private packed = false;
   scale = 1; ox = 0; oy = 0; dpr = 1;
   private cacheScale = 1;
   private gateDown = 1;
@@ -56,7 +58,8 @@ export class Renderer {
   resize(match: Match): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (w === 0 || h === 0) return;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // reduced effects also renders at 1.5x instead of 2x: about 45% fewer pixels to fill every frame on a phone
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.low ? 1.5 : 2);
     this.canvas.width = Math.round(w * this.dpr); this.canvas.height = Math.round(h * this.dpr);
     // layout boxes (unaffected by the automatic landscape rotation); the canvas fills the app from its top-left corner
     const st = this.stage, s = { left: st.offsetLeft, top: st.offsetTop, width: st.offsetWidth, height: st.offsetHeight }, c = { left: 0, top: 0 };
@@ -71,6 +74,8 @@ export class Renderer {
     clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
     loadTextures(() => this.paintBackground(match));
+    loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(3); clearBuildingCache(); } });
+    (window as unknown as { __broccoliArt: () => string[] }).__broccoliArt = artPackNames;
   }
 
   private world(c: Ctx): void {
@@ -98,51 +103,51 @@ export class Renderer {
 
     // height layer 1: the battlefield is a raised plateau; its edge drops as an earthen bank with rocks at the foot
     const px0 = 55, py0 = 20 * TILT, pw = W - 110, ph = (H - 5) * TILT - py0, rad = 170, drop = 24;
-    c.fillStyle = 'rgba(8,30,14,.32)'; c.beginPath(); c.roundRect(px0 + 8, py0 + drop + 14, pw, ph, rad); c.fill();
-    c.fillStyle = forest ? '#5a4a30' : '#6e5636'; c.beginPath(); c.roundRect(px0, py0 + drop, pw, ph, rad); c.fill();
-    c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
-    c.fillStyle = forest ? '#8a7350' : '#a98a5c'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
-    c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); texture(c, 'rock', 0.6, 0.7);
+    const wob: number[] = Array.from({ length: 64 }, (_, k) => Math.sin(k * 0.9) * 0.5 + Math.sin(k * 2.3 + 1) * 0.3 + rng.range(-0.25, 0.25));
+    const edgePath = (x0: number, y0: number, w: number, h: number, r: number, amp = 14) => {
+      // walk a rounded rectangle and push each point in or out along its outward direction
+      c.beginPath();
+      const N = 160, cx = x0 + w / 2, cy = y0 + h / 2, hx = w / 2 - r, hy = h / 2 - r;
+      for (let k = 0; k <= N; k++) {
+        const a = (k / N) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+        const qx = cx + Math.sign(ca) * hx + ca * r, qy = cy + Math.sign(sa) * hy + sa * r;
+        const f = wob[Math.floor(k / N * 64) % 64] * amp;
+        k ? c.lineTo(qx + ca * f, qy + sa * f * 0.7) : c.moveTo(qx + ca * f, qy + sa * f * 0.7);
+      }
+      c.closePath();
+    };
+    c.fillStyle = 'rgba(8,30,14,.32)'; edgePath(px0 + 8, py0 + drop + 14, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#5a4a30' : '#6e5636'; edgePath(px0, py0 + drop, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#766040' : '#93754a'; edgePath(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#8a7350' : '#a98a5c'; edgePath(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
+    edgePath(px0, py0 + drop * 0.22, pw, ph, rad); texture(c, 'rock', 0.6, 0.7);
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
     top.addColorStop(0, forest ? '#78a062' : '#a2b46c'); top.addColorStop(1, forest ? '#628a52' : '#8ba05c');   // olive, lower saturation
-    c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
+    c.fillStyle = top; edgePath(px0, py0, pw, ph, rad); c.fill();
     texture(c, 'grass', 0.3, 0.9); texture(c, 'leaf', 0.18, 2.2);
-    c.strokeStyle = 'rgba(250,255,215,.42)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
+    c.strokeStyle = 'rgba(250,255,215,.3)'; c.lineWidth = 3; edgePath(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
     for (let x = px0 + rad * 0.6; x < px0 + pw - rad * 0.6; x += rng.range(70, 130)) {
       drawRock(c, x, (py0 + ph + drop + rng.range(-2, 8)) / TILT, rng.range(9, 16));
     }
     for (const sx of [px0 - 4, px0 + pw + 4]) for (let i = 0; i < 3; i++) drawRock(c, sx + rng.range(-6, 6), (py0 + ph * (0.45 + i * 0.16)) / TILT, rng.range(8, 13));
-    c.save(); c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.clip();
+    c.save(); edgePath(px0, py0, pw, ph, rad); c.clip();
     for (let i = 0; i < 70; i++) {
       c.fillStyle = rng.next() < 0.55 ? 'rgba(250,252,190,.085)' : 'rgba(40,85,30,.06)';
       c.beginPath(); c.ellipse(rng.range(0, W), rng.range(0, H) * TILT, rng.range(60, 170), rng.range(20, 60), 0, 0, 7); c.fill();
     }
     c.restore();
 
-    // height layer 2: towers and forges stand on a low terrace with its own earthen step
-    for (const b of map.buildings) {
-      if (b.type === 'farm') continue;
-      const y = b.y * TILT + 5;
-      c.fillStyle = 'rgba(20,40,15,.22)'; c.beginPath(); c.ellipse(b.x + 4, y + 15, 112, 58, 0, 0, 7); c.fill();
-      c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.ellipse(b.x, y + 9, 108, 56, 0, 0, 7); c.fill();
-      c.fillStyle = forest ? '#6ea660' : '#a6c97a'; c.beginPath(); c.ellipse(b.x, y, 108, 56, 0, 0, 7); c.fill();
-      c.strokeStyle = 'rgba(250,255,215,.45)'; c.lineWidth = 2.5; c.beginPath(); c.ellipse(b.x, y, 105, 53.5, 0, Math.PI, Math.PI * 2); c.stroke();
-    }
-
-    // packed-dirt roads drawn exactly along the routes the armies walk
-    const routes: Vec[][] = match.roads;     // the same polylines every army route is built from
+    // worn dirt trails along the routes the armies walk: soft-edged, two faint ruts, no paved road and no junction loops
+    // (the full send route is drawn clearly only while dragging an order)
+    const routes: Vec[][] = match.roads;
     c.lineCap = 'round'; c.lineJoin = 'round';
-    for (const [lw, col] of [[32, 'rgba(70,52,26,.30)'], [24, forest ? '#b39a66' : '#c9ad74'], [12, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
-      c.strokeStyle = col; c.lineWidth = lw;
-      for (const pts of routes) { c.beginPath(); pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke(); }
+    const trace = (pts: Vec[], off: number) => { c.beginPath(); pts.forEach((q, k) => { const p0 = pts[Math.max(0, k - 1)], p1 = pts[Math.min(pts.length - 1, k + 1)], l = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, nx = -(p1.y - p0.y) / l * off, ny = (p1.x - p0.x) / l * off; k ? c.lineTo(q.x + nx, (q.y + ny) * TILT) : c.moveTo(q.x + nx, (q.y + ny) * TILT); }); c.stroke(); };
+    for (const [lw, col] of [[26, forest ? 'rgba(120,96,58,.16)' : 'rgba(150,118,70,.16)'], [17, forest ? 'rgba(150,124,80,.42)' : 'rgba(178,146,96,.46)']] as const) {
+      c.strokeStyle = col; c.lineWidth = lw; for (const pts of routes) trace(pts, 0);
     }
-    // ring road around every junction: squads passing a building walk this loop (radius B_PASS), never through the yard
-    const degree = map.buildings.map(() => 0);
-    for (const r of routes) for (const [k, b] of map.buildings.entries()) if ([r[0], r[r.length - 1]].some(p => p.x === b.x && p.y === b.y)) degree[k]++;
-    for (const [lw, col] of [[15, 'rgba(70,52,26,.22)'], [10, forest ? 'rgba(179,154,102,.8)' : 'rgba(201,173,116,.8)']] as const) {   // a narrow worn loop, not a base
-      c.strokeStyle = col; c.lineWidth = lw;
-      for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, match.passR[k], match.passR[k] * TILT, 0, 0, 7); c.stroke(); }
-    }
+    c.strokeStyle = 'rgba(95,72,40,.22)'; c.lineWidth = 2.2; c.setLineDash([22, 9, 6, 11]);
+    for (const pts of routes) { trace(pts, -4.5); trace(pts, 4.5); }
+    c.setLineDash([]);
     // (each building brings its own ground: yard, rock outcrop or ash — see art.ts foundation())
     const roads: [Vec, Vec][] = [];
     for (const pts of routes) for (let k = 1; k < pts.length; k++) roads.push([pts[k - 1], pts[k]]);
@@ -156,6 +161,7 @@ export class Renderer {
       for (let d = 30; d < len - 30; d += rng.range(45, 90)) {
         const s = rng.next() < 0.5 ? 1 : -1, off = rng.range(15, 19) * s, x = a.x + ((b.x - a.x) * d) / len + nx * off, y = a.y + ((b.y - a.y) * d) / len + ny * off;
         if (map.buildings.some(q => Math.hypot(q.x - x, q.y - y) < 90)) continue;
+        if (rng.next() < 0.5) continue;
         c.fillStyle = '#9a978d'; c.beginPath(); c.ellipse(x, y * TILT, 3.4, 2.4, 0, 0, 7); c.fill();
         c.fillStyle = '#cfccc2'; c.beginPath(); c.ellipse(x - 0.8, y * TILT - 0.8, 1.8, 1.1, 0, 0, 7); c.fill();
       }
@@ -177,6 +183,19 @@ export class Renderer {
       for (let k = 0; k < 5; k++) { c.beginPath(); c.arc(x + Math.cos(k * 1.257) * 3.2, y * TILT + Math.sin(k * 1.257) * 2.6, 2.3, 0, 7); c.fill(); }
       c.fillStyle = '#e8a52a'; c.beginPath(); c.arc(x, y * TILT, 1.8, 0, 7); c.fill();
     }
+    // bare-earth patches and moss: break the grass into an uneven, worn ground (denser toward the edges)
+    for (let i = 0; i < 46; i++) {
+      const x = rng.range(px0 + 40, px0 + pw - 40), y = rng.range(40, H - 30); if (blocked(x, y, 10) || (!edge(x, y) && rng.next() > 0.45)) continue;
+      const rx = rng.range(22, 60), ry = rx * rng.range(0.35, 0.55), rot = rng.range(-0.4, 0.4);
+      c.save(); c.translate(x, y * TILT); c.rotate(rot);
+      c.beginPath(); for (let k = 0; k < 9; k++) { const a = k / 9 * Math.PI * 2, j = rng.range(0.75, 1.15); k ? c.lineTo(Math.cos(a) * rx * j, Math.sin(a) * ry * j) : c.moveTo(Math.cos(a) * rx * j, Math.sin(a) * ry * j); } c.closePath();
+      c.fillStyle = forest ? 'rgba(120,98,62,.22)' : 'rgba(170,136,86,.26)'; c.fill(); c.restore();
+    }
+    for (let i = 0; i < 18; i++) {
+      const x = rng.range(px0 + 30, px0 + pw - 30), y = rng.range(40, H - 30); if (blocked(x, y, 18) || !edge(x, y)) continue;
+      for (let k = 0; k < 3; k++) drawRock(c, x + rng.range(-16, 16), y + rng.range(-8, 8), rng.range(6, 11));
+      c.fillStyle = 'rgba(70,120,50,.45)'; c.beginPath(); c.ellipse(x + 6, y * TILT + 4, 16, 5, 0, 0, 7); c.fill();
+    }
     for (const o of map.obstacles) if (o.kind === 'pond') drawPond(c, o.x, o.y, o.r);
     for (const o of map.obstacles) if (o.kind === 'rock') drawRock(c, o.x, o.y, o.r);
     this.paintRiver(c, match);
@@ -192,7 +211,7 @@ export class Renderer {
     for (let i = 0; i < (forest ? 260 : 150); i++) {
       const x = X(), y = Y();
       if (x > 70 && x < W - 70 && y > 40 && y < H - 30) continue; // keep the battlefield clear
-      trees.push([x, y, rng.range(0.9, 1.5)]);
+      trees.push([x, y, (x < 120 || x > W - 120) && (y < 140 || y > H - 120) ? rng.range(1.6, 2.4) : rng.range(0.9, 1.5)]);
     }
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y, s] of trees) drawTree(c, x, y * TILT, s, forest);
@@ -213,6 +232,16 @@ export class Renderer {
       const edge = i % 4, t2 = fr.next();
       const x = edge === 0 ? -60 + fr.range(0, 70) : edge === 1 ? W + 60 - fr.range(0, 70) : t2 * W, y = edge === 2 ? -40 + fr.range(0, 30) : edge === 3 ? H + 40 - fr.range(0, 30) : t2 * H;
       leaf(x, y, fr.range(0.7, 1.4), fr.range(0, Math.PI * 2), fr.next() < 0.5 ? 'rgba(14,52,28,.85)' : 'rgba(26,74,36,.78)');
+    }
+    // canopy of a big tree overhanging each top corner (kept off the playfield)
+    for (const [cx, dir] of [[-40, 1], [W + 40, -1]] as const) {
+      c.fillStyle = 'rgba(16,50,26,.92)'; c.strokeStyle = 'rgba(60,40,22,.95)'; c.lineWidth = 16; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(cx - dir * 30, 40 * TILT); c.quadraticCurveTo(cx + dir * 60, -10 * TILT, cx + dir * 150, -40 * TILT); c.stroke();
+      for (let k = 0; k < 9; k++) {
+        const x = cx + dir * fr.range(-30, 170), y = fr.range(-90, -10), r = fr.range(38, 62);
+        c.fillStyle = k % 3 === 0 ? '#163f22' : k % 3 === 1 ? '#1f5a2c' : '#2b6e33'; c.beginPath(); c.arc(x, y * TILT, r, 0, 7); c.fill();
+        c.fillStyle = 'rgba(190,230,120,.18)'; c.beginPath(); c.arc(x - r * 0.3, y * TILT - r * 0.3, r * 0.5, 0, 7); c.fill();
+      }
     }
     c.strokeStyle = 'rgba(70,48,26,.85)'; c.lineCap = 'round';
     for (let i = 0; i < 8; i++) {                                  // roots creeping in at the bottom corners
@@ -297,7 +326,8 @@ export class Renderer {
     const now = performance.now();
     const dt = Math.min(0.05, this.last ? (now - this.last) / 1000 : 0.016);
     if (this.last) this.frameMs = this.frameMs * 0.95 + (now - this.last) * 0.05;
-    this.last = now; this.frameNo++; this.low = f.lowFx;
+    this.last = now; this.frameNo++;
+    if (this.low !== f.lowFx) { this.low = f.lowFx; this.resize(f.match); }
     const c = this.ctx, m = f.match, t = f.time, ss = this.ss;
     if (this.bview.length !== m.buildings.length) this.resize(m);
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -345,6 +375,19 @@ export class Renderer {
     let soldiers = 0;
     const atTarget = new Map<number, number>();
     const squeezeAt = (x: number, y: number) => { let g = 1e9; for (const q of m.buildings) g = Math.min(g, Math.hypot(q.x - x, q.y - y) - VIS.buildingBody); return Math.max(0.15, Math.min(1, (g - 14) / 46)); };
+    // squads of one owner marching the same way on top of each other (a bridge, a narrow pass) queue one behind the other
+    const queueBack = new Map<number, number>(), mv = m.armies.filter(a => a.state === 'moving' && (a.x !== a.px || a.y !== a.py));
+    for (const a of mv) {
+      const l = Math.hypot(a.x - a.px, a.y - a.py), ux = (a.x - a.px) / l, uy = (a.y - a.py) / l;
+      let back = 0;
+      for (const b of mv) {
+        if (b === a || b.owner !== a.owner) continue;
+        const lb = Math.hypot(b.x - b.px, b.y - b.py); if (((b.x - b.px) * ux + (b.y - b.py) * uy) / lb < 0.7) continue;
+        const rx = b.x - a.x, ry = b.y - a.y, ahead = rx * ux + ry * uy, side = Math.abs(-rx * uy + ry * ux);
+        if (side < 34 && ahead > -1 && ahead < VIS.queueGap && (ahead > 1 || b.id < a.id)) back = Math.max(back, VIS.queueGap - ahead);
+      }
+      queueBack.set(a.id, back);
+    }
     for (const a of m.armies) {
       const sheet = this.sheets[a.owner % 4], target = m.buildings[a.to];
       let ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
@@ -355,7 +398,7 @@ export class Renderer {
       const foe = a.state === 'clashing' ? m.armies.find(x => x.id === a.foe) : undefined;
       if (foe) { dx = foe.x - a.x; dy = foe.y - a.y; }             // in a road clash the group turns to face its opponent
       const want = Math.atan2(dy, dx);
-      if (!v) { v = { ang: want, dust: 0, seen: 0, hitIdx: 0, hitUntil: 0, flash: 0 }; this.aview.set(a.id, v); }
+      if (!v) { v = { ang: want, dust: 0, seen: 0, hitIdx: 0, hitUntil: 0, flash: 0, qb: 0 }; this.aview.set(a.id, v); }
       let d = want - v.ang; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       v.ang += d * Math.min(1, dt * 9); v.seen = this.frameNo;
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
@@ -372,14 +415,16 @@ export class Renderer {
       // passing a building on the way: narrow to a column before the yard, widen again after it
       for (const q of m.buildings) if (q.id !== a.from && q.id !== a.to) gap = Math.min(gap, Math.hypot(q.x - ax, q.y - ay) - VIS.buildingBody);
       const squeeze = Math.max(0.4, Math.min(1, (gap - 14) / 46));
+      v.qb += ((queueBack.get(a.id) ?? 0) * Math.min(1, (1 - squeeze) * 2.5 + 0.25) - v.qb) * Math.min(1, dt * 5);
+      ax -= cos * v.qb; ay -= sin * v.qb;
       const per = squeeze < 0.75 ? 2 : Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3)));
-      // soldiers file out of the door rank by rank instead of appearing as a block
+      // soldiers leave the door in waves of two ranks instead of appearing as a block
       const age = (m.tick + f.alpha - a.createdTick) / m.bal.tickRate, home = m.buildings[a.from];
       if (!this.fighters.has(a.to) && a.state === 'fighting') this.fighters.set(a.to, a);
       const n2 = path.length, inAng = Math.atan2(path[n2 - 2].y - path[n2 - 1].y, path[n2 - 2].x - path[n2 - 1].x);
       for (let k = 0; k < n; k++) {
         const row = Math.floor(k / per), cols = Math.min(per, n - row * per);
-        const out = (age - row * VIS.exitRankDelay) / VIS.exitWalkSec;
+        const out = (age - Math.floor(row / 2) * VIS.exitWaveSec - (row % 2) * VIS.exitRankDelay) / VIS.exitWalkSec;   // two ranks per wave
         if (out <= 0) continue;                                    // this rank is still inside the building
         const across = ((k % per) - (cols - 1) / 2) * VIS.spacingAcross * ss * squeeze, along = -row * VIS.spacingAlong * ss * (2 - squeeze);
         let x = ax + cos * along - sin * across, y = ay + sin * along + cos * across;
@@ -567,7 +612,7 @@ export class Renderer {
     c.font = `800 ${fs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
     for (const b of m.buildings) {
       const v = this.bview[b.id], y = b.y * TILT + 24 + fs * 0.35, ph = fs * 1.25;
-      this.pill(c, b.x + (v.shake > 0 ? Math.sin(t * 90) * 2.5 : 0), y, String(Math.floor(b.garrison)), fs,
+      this.pill(c, b.x, y, String(Math.floor(b.garrison)), fs,
         b.owner < 0 ? 'rgba(40,42,36,.86)' : darkOf(b.owner), b.owner < 0 ? '#cfc8b4' : '#fff', b.owner);
       const max = m.maxLevel(b);
       if (max > 1) for (let i = 0; i < max; i++) {
@@ -605,12 +650,28 @@ export class Renderer {
       c.font = `800 ${fs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
     }
     // army badges: the real number of units in the group, with the team shape
-    const afs = Math.max(21, VIS.badgeMinPx / this.scale);
+    const afs = Math.max(17, VIS.badgeMinPx / this.scale);
     c.font = `800 ${afs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    // squads of one owner whose badges would overlap share one badge showing their exact total
+    type Pin = { x: number; y: number; units: number; owner: number; n: number; flash: number };
+    const pins: Pin[] = [], near = afs * 2.2;
     for (const g of badges) {
       const hv = this.aview.get(g.a.id), fl = hv ? hv.flash : 0;
       if (hv && fl > 0) hv.flash = Math.max(0, fl - dt / 0.25);
-      this.pill(c, g.x, g.y * TILT - SOLDIER.h * ss - afs * (0.55 + fl * 0.25), String(g.a.units), afs * (1 + fl * 0.18), fl > 0.5 ? '#fff' : colorOf(g.a.owner), '#fff', g.a.owner, fl > 0.5 ? '#7a1d12' : '#fff');
+      const y = g.y * TILT - SOLDIER.h * ss - afs * 0.55;
+      const p = pins.find(q => q.owner === g.a.owner && Math.abs(q.x / q.n - g.x) < near && Math.abs(q.y / q.n - y) < afs * 1.3);
+      if (p) { p.x += g.x; p.y += y; p.units += g.a.units; p.n++; p.flash = Math.max(p.flash, fl); }
+      else pins.push({ x: g.x, y, units: g.a.units, owner: g.a.owner, n: 1, flash: fl });
+    }
+    pins.forEach(p => { p.x /= p.n; p.y /= p.n; });
+    // badges of different owners that still touch are pushed apart vertically
+    for (let i = 0; i < pins.length; i++) for (let j = 0; j < i; j++) {
+      const a = pins[i], b = pins[j];
+      if (Math.abs(a.x - b.x) < near && Math.abs(a.y - b.y) < afs * 1.3) a.y = b.y - afs * 1.35;
+    }
+    for (const p of pins) {
+      const fl = p.flash;
+      this.pill(c, p.x, p.y - fl * afs * 0.25, String(p.units), afs * (1 + fl * 0.18), fl > 0.5 ? '#fff' : colorOf(p.owner), '#fff', p.owner, fl > 0.5 ? '#7a1d12' : '#fff');
     }
     for (const p of this.pops) {
       p.t += dt;
