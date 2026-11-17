@@ -100,7 +100,7 @@ export class Renderer {
     c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
     c.fillStyle = forest ? '#8a7350' : '#a98a5c'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
-    top.addColorStop(0, forest ? '#5f9a57' : '#96bd6c'); top.addColorStop(1, forest ? '#497f49' : '#80ad60');
+    top.addColorStop(0, forest ? '#78a062' : '#a2b46c'); top.addColorStop(1, forest ? '#628a52' : '#8ba05c');   // olive, lower saturation
     c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
     c.strokeStyle = 'rgba(250,255,215,.42)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
     for (let x = px0 + rad * 0.6; x < px0 + pw - rad * 0.6; x += rng.range(70, 130)) {
@@ -439,7 +439,10 @@ export class Renderer {
         c.globalAlpha = it.hop; c.drawImage(it.frame!, it.x - FALL.w * ss * 0.45, py - FALL.h * ss * 0.7, FALL.w * ss * 0.9, FALL.h * ss * 0.9); c.globalAlpha = 1;
       } else {
         const py = it.y * TILT;
-        if (!this.low) shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.26);
+        if (!this.low) {   // team-coloured footing under every soldier: ownership reads even where the sprite is small
+          shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.3);
+          c.fillStyle = colorOf(it.ref); c.globalAlpha = 0.55; c.beginPath(); c.ellipse(it.x, py + 1, 7.5 * ss, 3 * ss, 0, 0, 7); c.fill(); c.globalAlpha = 1;
+        }
         if (it.flip) { c.save(); c.translate(it.x, 0); c.scale(-1, 1); c.drawImage(it.frame!, -sw / 2, py - sh + 4 * ss - it.hop, sw, sh); c.restore(); }
         else c.drawImage(it.frame!, it.x - sw / 2, py - sh + 4 * ss - it.hop, sw, sh);
       }
@@ -524,6 +527,7 @@ export class Renderer {
 
   private pill(c: Ctx, x: number, y: number, text: string, fs: number, fill: string, stroke: string, owner: number | null, ink = '#fff'): void {
     const tw = c.measureText(text).width, pw = tw + fs * (owner === null ? 0.9 : 1.5), ph = fs * 1.25, x0 = x - pw / 2;
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.roundRect(x0 - 2, y - ph / 2 + 1, pw + 4, ph + 3, ph / 2 + 2); c.fill();   // dark halo keeps numbers legible over bright effects
     c.fillStyle = fill; c.strokeStyle = stroke; c.lineWidth = Math.max(3, fs * 0.11);
     c.beginPath(); c.roundRect(x0, y - ph / 2, pw, ph, ph / 2); c.fill(); c.stroke();
     if (owner !== null) emblemShape(c, x0 + fs * 0.55, y, fs * 0.26, owner, owner < 0 ? '#cfc8b4' : '#fff');

@@ -4,7 +4,8 @@ type Bus = 'music' | 'amb' | 'fx';
 let ac: AudioContext | null = null;
 let master: GainNode, buses: Record<Bus, GainNode>, layerB: GainNode, noiseBuf: AudioBuffer;
 const on: Record<Bus, boolean> = { music: true, amb: true, fx: true };
-const LEVEL: Record<Bus, number> = { music: 0.9, amb: 0.8, fx: 1 };
+// default mix: effects lead, music and ambience sit under them (each adjustable 0..1 in Settings)
+const LEVEL: Record<Bus, number> = { music: 0.55, amb: 0.6, fx: 1 };
 let voices = 0;
 const MAX_VOICES = 9;
 const lastAt: Record<string, number> = {};
@@ -16,7 +17,9 @@ function init(): void {
   if (ac) return;
   const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   ac = new Ctor();
-  master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+  // a gentle compressor on the master keeps several simultaneous battles from piling up into distortion
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+  master = ac.createGain(); master.gain.value = 0.9; master.connect(comp).connect(ac.destination);
   const mk = (b: Bus) => { const g = ac!.createGain(); g.gain.value = on[b] ? LEVEL[b] : 0; g.connect(master); return g; };
   buses = { music: mk('music'), amb: mk('amb'), fx: mk('fx') };
   layerB = ac.createGain(); layerB.gain.value = 0; layerB.connect(buses.music);
@@ -36,6 +39,9 @@ function setBus(b: Bus, v: boolean): void {
   if (ac) buses[b].gain.setTargetAtTime(v ? LEVEL[b] : 0, ac.currentTime, 0.05);
 }
 export function setSound(v: boolean): void { setBus('fx', v); }
+/** Volume of one bus, 0..1 (0 also counts as off). */
+export function setLevel(b: Bus, v: number): void { LEVEL[b] = Math.max(0, Math.min(1, v)); setBus(b, LEVEL[b] > 0); if (b === 'music') setMusic(LEVEL[b] > 0); }
+export const levels = () => ({ ...LEVEL });
 export function setAmbience(v: boolean): void { setBus('amb', v); }
 export function setMusic(v: boolean): void {
   setBus('music', v);
@@ -196,5 +202,5 @@ function pump(): void {
       recorder.stop();
     });
   },
-  state: () => ({ running: live(), voices, intensity, on: { ...on }, scene }),
+  state: () => ({ running: live(), voices, intensity, on: { ...on }, levels: { ...LEVEL }, scene }),
 };

@@ -306,9 +306,10 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
 {
   const { ctx, page, errors } = await open({ viewport: { width: 1366, height: 768 } });
   await page.click('#btnSettings'); await page.click('#segLang .segb:nth-child(2)');
-  await page.click('#segMusic .segb:nth-child(2)'); await page.click('#segAmb .segb:nth-child(2)'); await page.click('#segFx .segb:nth-child(2)'); await page.click('#settings [data-back]');
-  const sw = await page.evaluate(() => window.__broccoliAudio.state().on);
-  check('music, ambience and effects have separate switches', sw.music === false && sw.amb === false && sw.fx === true, JSON.stringify(sw));
+  const setVol = (id, v) => page.$eval('#' + id, (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); }, v);
+  await setVol('volMusic', 0); await setVol('volAmb', 30); await page.click('#segFx .segb:nth-child(2)'); await page.click('#settings [data-back]');
+  const sw = await page.evaluate(() => window.__broccoliAudio.state());
+  check('music, ambience and effects have independent levels', sw.on.music === false && sw.on.amb === true && Math.abs(sw.levels.amb - 0.3) < 1e-9 && sw.levels.fx === 1, JSON.stringify(sw.levels));
   check('language switch works', (await page.textContent('#btnSolo')) === 'Solo Skirmish');
   await page.click('#btnSolo'); await page.click('#btnStart');
   await page.waitForTimeout(500);

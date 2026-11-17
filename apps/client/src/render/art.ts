@@ -2,8 +2,9 @@
 import type { BuildingType } from '../../../../packages/simulation/src/index';
 
 export const TILT = 0.78; // vertical squash of the ground plane (2.5D look)
-export const TEAM = ['#2fbf71', '#e5484d', '#3b9eff', '#a070ff'];
-export const TEAM_DARK = ['#1c7a47', '#9c2327', '#1f63b0', '#6337c4'];
+// emerald (player) is pushed toward blue-green so it separates from the olive meadow; crimson enemy; stone neutral
+export const TEAM = ['#12c98f', '#e43b4b', '#3b9eff', '#a070ff'];
+export const TEAM_DARK = ['#07694a', '#8e1a26', '#1f63b0', '#6337c4'];
 export const NEUTRAL = '#dcd7c8';      // light stone
 export const NEUTRAL_DARK = '#8d887a';
 export const colorOf = (owner: number) => (owner < 0 ? NEUTRAL : TEAM[owner % 4]);
@@ -266,6 +267,17 @@ export const FALL = { w: 46, h: 30 };
  * Original broccoli soldier, pre-rendered per team: floret head, stalk body, team tunic and shield, leaf-tipped spear.
  * run[0..3] is the march cycle (run[0] doubles as idle), attack[0..1] is wind-up and thrust.
  */
+/** Dark 1px rim around a sprite so a soldier reads against grass, dirt and effects alike. */
+function outline(src: HTMLCanvasElement, scale: number): HTMLCanvasElement {
+  const sil = document.createElement('canvas'); sil.width = src.width; sil.height = src.height;
+  const s = sil.getContext('2d')!; s.drawImage(src, 0, 0); s.globalCompositeOperation = 'source-in'; s.fillStyle = '#0c2116'; s.fillRect(0, 0, sil.width, sil.height);
+  const out = document.createElement('canvas'); out.width = src.width; out.height = src.height;
+  const c = out.getContext('2d')!, d = 1.1 * scale;
+  for (let k = 0; k < 8; k++) c.drawImage(sil, Math.round(Math.cos(k * Math.PI / 4) * d), Math.round(Math.sin(k * Math.PI / 4) * d));
+  c.drawImage(src, 0, 0);
+  return out;
+}
+
 export function makeSoldierSheets(scale: number): SoldierSheet[] {
   const draw = (team: number, leg: number, bob: number, thrust: number, dazed = false): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(SOLDIER.w * scale); cv.height = Math.ceil(SOLDIER.h * scale);
@@ -305,7 +317,7 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
       c.fillStyle = '#62c56a'; circ(c, fx - fr * 0.3, fy + y - fr * 0.3, fr * 0.45); c.fill();
     }
     c.fillStyle = col; c.strokeStyle = dark; c.lineWidth = 0.8; c.beginPath(); c.roundRect(9.5, 15 + y, 13.5, 3, 1.5); c.fill(); c.stroke();
-    return cv;
+    return outline(cv, scale);
   };
   const lying = (src: HTMLCanvasElement): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(FALL.w * scale); cv.height = Math.ceil(FALL.h * scale);

@@ -69,6 +69,7 @@
   .btn.alt { background: linear-gradient(#f6f1d8, #d9d2ae); color: var(--ink); box-shadow: 0 4px 0 #8f8a63, 0 8px 16px rgba(0,0,0,.3); }
   .btn.warn { background: linear-gradient(#f0787b, #c93a3e); box-shadow: 0 4px 0 #7d1f22, 0 8px 16px rgba(0,0,0,.3); }
   .build { position: absolute; bottom: calc(4px + var(--sb)); left: 0; right: 0; text-align: center; font: 10px ui-monospace, monospace; opacity: .55; direction: ltr; }
+  .vol { display: flex; align-items: center; gap: 8px; direction: ltr; } .vol input { width: min(240px, 40vw); accent-color: var(--gold); height: 30px; } .vol b { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
   h2 { margin: 0 0 8px; font-size: clamp(18px, 5vh, 28px); }
   .panel { background: rgba(10,30,18,.55); border-radius: 20px; padding: 12px 16px; width: min(760px, 100%); }
@@ -151,9 +152,9 @@
     <div class="panel">
       <h2 data-i18n="settings"></h2>
       <div class="field"><span data-i18n="language"></span><div class="seg" id="segLang"></div></div>
-      <div class="field"><span data-i18n="music"></span><div class="seg" id="segMusic"></div></div>
-      <div class="field"><span data-i18n="ambience"></span><div class="seg" id="segAmb"></div></div>
-      <div class="field"><span data-i18n="sound"></span><div class="seg" id="segSound"></div></div>
+      <div class="field"><span data-i18n="music"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volMusic"><b></b></label></div>
+      <div class="field"><span data-i18n="ambience"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volAmb"><b></b></label></div>
+      <div class="field"><span data-i18n="sound"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volFx"><b></b></label></div>
       <div class="field"><span data-i18n="effects"></span><div class="seg" id="segFx"></div></div>
       <div class="field"><span data-i18n="hudSide"></span><div class="seg" id="segSide"></div></div>
     </div>

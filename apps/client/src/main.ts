@@ -1,7 +1,7 @@
 import { MAPS, type Difficulty, type Match } from '../../../packages/simulation/src/index';
 import { Session, type SessionOpts } from './game';
 import { colorOf } from './render/art';
-import { setAmbience, setMusic, setSound, sfx, unlockAudio } from './audio/sfx';
+import { levels, setLevel, sfx, unlockAudio } from './audio/sfx';
 
 declare const __BUILD__: string;
 import { getLang, setLang, t, type Lang } from './ui/i18n';
@@ -14,10 +14,9 @@ const store = {
 };
 
 let session: Session | null = null;
-let soundOn = store.get('sound', '1') === '1';
-let musicOn = store.get('music', '1') === '1';
 let lowFx = store.get('fx', 'high') === 'low';
-let ambOn = store.get('amb', '1') === '1';
+const vol = { ...levels() };
+for (const b of ['music', 'amb', 'fx'] as const) { const v = store.get('vol.' + b, ''); if (v !== '') vol[b] = Number(v) / 100; }
 let howFromPause = false;
 let flipHud = store.get('side', 'left') === 'right';
 let roadClash = false;
@@ -77,12 +76,11 @@ function renderSetup(): void {
 function renderSettings(): void {
   seg($('segLang'), [{ v: 'ar', label: 'العربية' }, { v: 'en', label: 'English' }], getLang(),
     v => { setLang(v as Lang); store.set('lang', v); renderSettings(); });
-  seg($('segSound'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], soundOn ? '1' : '0',
-    v => { soundOn = v === '1'; setSound(soundOn); store.set('sound', v); renderSettings(); });
-  seg($('segMusic'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], musicOn ? '1' : '0',
-    v => { musicOn = v === '1'; setMusic(musicOn); store.set('music', v); renderSettings(); });
-  seg($('segAmb'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], ambOn ? '1' : '0',
-    v => { ambOn = v === '1'; setAmbience(ambOn); store.set('amb', v); renderSettings(); });
+  for (const [id, bus] of [['volMusic', 'music'], ['volAmb', 'amb'], ['volFx', 'fx']] as const) {
+    const el = $<HTMLInputElement>(id), show = () => { (el.nextElementSibling as HTMLElement).textContent = el.value; };
+    el.value = String(Math.round(vol[bus] * 100)); show();
+    el.oninput = () => { vol[bus] = Number(el.value) / 100; setLevel(bus, vol[bus]); store.set('vol.' + bus, el.value); show(); };
+  }
   seg($('segFx'), [{ v: 'high', label: t('fxHigh') }, { v: 'low', label: t('fxLow') }], lowFx ? 'low' : 'high',
     v => { lowFx = v === 'low'; store.set('fx', v); renderSettings(); });
   seg($('segSide'), [{ v: 'left', label: t('left') }, { v: 'right', label: t('right') }], flipHud ? 'right' : 'left',
@@ -137,7 +135,7 @@ function toMenu(): void {
 function init(): void {
   initOrientation();
   setLang(store.get('lang', 'ar') as Lang);
-  setSound(soundOn); setMusic(musicOn); setAmbience(ambOn);
+  for (const b of ['music', 'amb', 'fx'] as const) setLevel(b, vol[b]);
   document.querySelectorAll<HTMLElement>('.build').forEach(el => (el.textContent = __BUILD__));
   (window as unknown as { __broccoliBuild: string }).__broccoliBuild = __BUILD__;
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
