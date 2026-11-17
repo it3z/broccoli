@@ -1,7 +1,8 @@
 import type {
   Army, Balance, Building, BuildingType, Command, MapDef, MatchConfig, Pct, PendingOrder, Player, Projectile, SimEvent,
 } from './types';
-import { buildPaths, pointAt, type Path } from './paths';
+import { buildNetwork, pointAt, type Path } from './paths';
+import type { Vec } from './types';
 
 const PCTS = [25, 50, 75, 100];
 const TYPES: BuildingType[] = ['farm', 'tower', 'forge'];
@@ -26,6 +27,8 @@ export class Match {
   readonly bal: Balance;
   readonly map: MapDef;
   readonly paths: Path[][];
+  /** The roads drawn on the map: exactly the polylines that army routes are built from. */
+  readonly roads: Vec[][];
   readonly seed: number;
   tick = 0;
   players: Player[] = [];
@@ -48,7 +51,8 @@ export class Match {
     this.map = cfg.map;
     this.seed = cfg.seed;
     this.roadClash = !!cfg.roadClash;
-    this.paths = buildPaths(cfg.map);
+    const net = buildNetwork(cfg.map);
+    this.paths = net.paths; this.roads = net.roads;
     const slotToPlayer = new Map<number, number>();
     cfg.players.forEach((p, i) => {
       slotToPlayer.set(p.slot, i);

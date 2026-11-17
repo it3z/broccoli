@@ -5,6 +5,7 @@ import { setAmbience, setMusic, setSound, sfx, unlockAudio } from './audio/sfx';
 
 declare const __BUILD__: string;
 import { getLang, setLang, t, type Lang } from './ui/i18n';
+import { initOrientation } from './ui/orient';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const store = {
@@ -134,6 +135,7 @@ function toMenu(): void {
 }
 
 function init(): void {
+  initOrientation();
   setLang(store.get('lang', 'ar') as Lang);
   setSound(soundOn); setMusic(musicOn); setAmbience(ambOn);
   document.querySelectorAll<HTMLElement>('.build').forEach(el => (el.textContent = __BUILD__));

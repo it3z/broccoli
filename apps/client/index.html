@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#17351f">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22BROCCOLI%3A%20Kingdom%20Clash%22%2C%22display%22%3A%22fullscreen%22%2C%22orientation%22%3A%22landscape%22%7D">
 <title>BROCCOLI: Kingdom Clash</title>
 <style>
   :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
@@ -85,10 +86,9 @@
   #resTitle.win { color: var(--gold); } #resTitle.loss { color: #ff9c9c; }
   #resStats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; margin-bottom: 8px; min-width: min(420px, 90%); }
   #resStats div { display: flex; justify-content: space-between; gap: 14px; font-size: 14px; } #resStats b { color: var(--gold); }
-  #rotate { display: none; position: absolute; inset: 0; z-index: 9; background: #12301e; align-items: center; justify-content: center; flex-direction: column; font-weight: 900; font-size: 20px; text-align: center; padding: 24px; }
-  #rotate b { font-size: 64px; display: block; animation: rot 1.6s ease-in-out infinite; }
-  @keyframes rot { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(90deg); } }
-  @media (orientation: portrait) and (max-width: 820px) { #rotate { display: flex; } }
+  /* automatic landscape: an upright phone gets the whole game turned 90° (safe-area insets follow the turn) */
+  html.rot #app { inset: auto; top: 0; left: 0; transform-origin: top left; transform: rotate(90deg) translateY(-100%);
+    --sl: env(safe-area-inset-top, 0px); --st: env(safe-area-inset-right, 0px); --sr: env(safe-area-inset-bottom, 0px); --sb: env(safe-area-inset-left, 0px); }
   @media (max-height: 400px) { .btn { min-height: 44px; margin: 4px; font-size: 16px; } .panel { padding: 8px 14px; } .field { margin: 4px 0; } }
 </style>
 </head>
@@ -183,7 +183,6 @@
     </div>
   </div>
 
-  <div id="rotate"><b>📱</b><span data-i18n="rotate"></span></div>
 </div>
 <script src="app.js"></script>
 </body>

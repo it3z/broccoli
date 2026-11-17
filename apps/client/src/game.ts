@@ -3,6 +3,7 @@ import { Renderer, colorOf, type BoxState, type DragState } from './render/rende
 import { VIS } from './render/config';
 import { setIntensity, setScene, sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
+import { toLocal, toScreenPx } from './ui/orient';
 
 export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -71,7 +72,7 @@ export class Session {
     const dt = Math.min(MAX_DT, this.lastT ? (ts - this.lastT) / 1000 : 0);
     this.lastT = ts;
     const m = this.match, step = 1 / m.bal.tickRate;
-    const blocked = this._paused || matchMedia('(orientation: portrait) and (max-width: 820px)').matches;
+    const blocked = this._paused;
     if (!blocked && m.phase === 'playing') {
       this.acc += dt * this.speed; this.time += dt;
       while (this.acc >= step && m.phase === 'playing') {
@@ -175,7 +176,7 @@ export class Session {
 
   private bind(): void {
     const cv = this.canvas;
-    const pos = (e: PointerEvent) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const pos = (e: PointerEvent) => toLocal(e.clientX, e.clientY);   // canvas fills the (possibly rotated) app, so local = canvas coords
     const live = () => !this._paused && this.match.phase === 'playing';
     const down = (e: PointerEvent) => {
       e.preventDefault(); unlockAudio();
@@ -234,7 +235,7 @@ export class Session {
       else { this.selection.add(b.id); sfx.tap(); }
     };
     const cancel = (e: PointerEvent) => { if (this.ptr && this.ptr.id === e.pointerId) this.cancelPointer(); };
-    const resize = () => this.renderer.resize(this.match);
+    const resize = () => { this.renderer.resize(this.match); requestAnimationFrame(() => this.renderer.resize(this.match)); };
     const noMenu = (e: Event) => e.preventDefault();
     cv.addEventListener('pointerdown', down); cv.addEventListener('pointermove', move);
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', cancel);
@@ -336,8 +337,8 @@ export class Session {
 
   /** Test hook: where a building sits on screen. */
   screenOf(id: number): { x: number; y: number } {
-    const b = this.match.buildings[id], p = this.renderer.toScreen(b.x, b.y), r = this.canvas.getBoundingClientRect();
-    return { x: p.x + r.left, y: p.y - 26 * this.renderer.scale + r.top };
+    const b = this.match.buildings[id], p = this.renderer.toScreen(b.x, b.y);
+    return toScreenPx(p.x, p.y - 26 * this.renderer.scale);
   }
   /** Test hook: let an AI of the given level play the human seat. */
   autoplay(diff: Difficulty | null, speed = 1): void {

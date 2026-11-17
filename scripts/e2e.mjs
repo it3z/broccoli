@@ -177,13 +177,23 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(250);
   const f2 = await fit();
   check('viewport height change (Safari bars): map refits and every building stays visible', f1.inside && f2.inside && f1.scale < f0.scale && Math.abs(f2.scale - f0.scale) < 1e-6, `${f0.scale.toFixed(3)} -> ${f1.scale.toFixed(3)} -> ${f2.scale.toFixed(3)}`);
-  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
-  const r1 = (await state(page)).tick; await page.waitForTimeout(700);
+  // portrait: the game turns itself to landscape and keeps playing; touch is remapped through the turn
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+  const rot = await page.evaluate(() => ({ rot: document.documentElement.classList.contains('rot'), w: document.getElementById('app').offsetWidth, h: document.getElementById('app').offsetHeight }));
+  const r1 = (await state(page)).tick; await page.waitForTimeout(600);
   const r2 = (await state(page)).tick;
-  check('rotating to portrait shows the rotate notice and holds the match', await page.isVisible('#rotate') && r2 === r1);
+  check('portrait phone: game auto-rotates to landscape and keeps running', rot.rot && rot.w === 844 && rot.h === 390 && r2 > r1, JSON.stringify(rot));
+  await page.evaluate(() => { const m = window.__broccoli.match; m.buildings[0].garrison = 30; window.__broccoli.selection.clear(); });
+  const pa = await at(page, 0), pb = await at(page, 9);
+  const before9 = (await state(page)).armies.filter(a => a.owner === 0).length;
+  await (await drag(pa, pb))();
+  await page.waitForTimeout(300);
+  const pr = await state(page);
+  check('portrait (rotated): a drag still sends troops to the right building', pr.armies.some(a => a.owner === 0 && a.to === 9) && pr.armies.filter(a => a.owner === 0).length > before9, `screen ${Math.round(pa.x)},${Math.round(pa.y)} -> ${Math.round(pb.x)},${Math.round(pb.y)}`);
+  await page.screenshot({ path: join(shots, '8b-portrait-rotated.png') });
   await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(500);
-  const r3 = await state(page), f3 = await fit();
-  check('rotating back resumes without a jump', r3.tick > r2 && r3.tick - r2 <= 14 && f3.inside, `+${r3.tick - r2} ticks in 0.5 s`);
+  const f3 = await fit();
+  check('back to landscape: no rotation, map still framed', !(await page.evaluate(() => document.documentElement.classList.contains('rot'))) && f3.inside);
 
   // K: pause, wait, resume: no jump in time or production
   await page.tap('#btnPause');

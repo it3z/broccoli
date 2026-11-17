@@ -1,4 +1,4 @@
-import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
+import { B_PASS, Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 
@@ -56,7 +56,8 @@ export class Renderer {
     if (w === 0 || h === 0) return;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(w * this.dpr); this.canvas.height = Math.round(h * this.dpr);
-    const s = this.stage.getBoundingClientRect(), c = this.canvas.getBoundingClientRect();
+    // layout boxes (unaffected by the automatic landscape rotation); the canvas fills the app from its top-left corner
+    const st = this.stage, s = { left: st.offsetLeft, top: st.offsetTop, width: st.offsetWidth, height: st.offsetHeight }, c = { left: 0, top: 0 };
     // frame the buildings (plus room for roofs, flags and labels), not the whole empty map
     const bs = match.map.buildings, pad = VIS.fitPad;
     const x0 = Math.min(...bs.map(b => b.x)) - pad.side, x1 = Math.max(...bs.map(b => b.x)) + pad.side;
@@ -124,14 +125,18 @@ export class Renderer {
     }
 
     // packed-dirt roads drawn exactly along the routes the armies walk
-    const routes: Vec[][] = [];
-    for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
-      const p = match.paths[i][j]; if (p.len <= VIS.roadMaxLen) routes.push(p.pts);
-    }
+    const routes: Vec[][] = match.roads;     // the same polylines every army route is built from
     c.lineCap = 'round'; c.lineJoin = 'round';
     for (const [lw, col] of [[32, 'rgba(70,52,26,.30)'], [24, forest ? '#b39a66' : '#c9ad74'], [12, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
       c.strokeStyle = col; c.lineWidth = lw;
       for (const pts of routes) { c.beginPath(); pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke(); }
+    }
+    // ring road around every junction: squads passing a building walk this loop (radius B_PASS), never through the yard
+    const degree = map.buildings.map(() => 0);
+    for (const r of routes) for (const [k, b] of map.buildings.entries()) if ([r[0], r[r.length - 1]].some(p => p.x === b.x && p.y === b.y)) degree[k]++;
+    for (const [lw, col] of [[30, 'rgba(70,52,26,.30)'], [22, forest ? '#b39a66' : '#c9ad74'], [10, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
+      c.strokeStyle = col; c.lineWidth = lw;
+      for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, B_PASS, B_PASS * TILT, 0, 0, 7); c.stroke(); }
     }
     // packed-earth yard under every building, so garrison numbers and fights read against calm ground
     for (const b of map.buildings) {
@@ -313,6 +318,7 @@ export class Renderer {
     const badges: { x: number; y: number; a: Army }[] = [];
     let soldiers = 0;
     const atTarget = new Map<number, number>();
+    const squeezeAt = (x: number, y: number) => { let g = 1e9; for (const q of m.buildings) g = Math.min(g, Math.hypot(q.x - x, q.y - y) - VIS.buildingBody); return Math.max(0.15, Math.min(1, (g - 14) / 46)); };
     for (const a of m.armies) {
       const sheet = this.sheets[a.owner % 4], target = m.buildings[a.to];
       let ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
@@ -329,7 +335,7 @@ export class Renderer {
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
       // squads sharing a road keep to their own lane, so synchronized groups read as separate units (drawing only)
       const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.paths[a.from][a.to].len - a.dist) / 70);
-      ax -= sin * lane; ay += cos * lane;
+      ax -= sin * lane * squeezeAt(ax, ay); ay += cos * lane * squeezeAt(ax, ay);
       const hostile = !m.sameTeam(a.owner, target.owner);
       const toTarget = Math.hypot(target.x - ax, target.y - ay);
       // blend from marching block to a battle arc around the target as the group closes in
@@ -337,8 +343,10 @@ export class Renderer {
       const n = this.icons(a.units);
       // two or three ranks; the block narrows and stretches where the road squeezes past a pond or rock
       let gap = 1e9; for (const o of m.map.obstacles) gap = Math.min(gap, Math.hypot(o.x - ax, o.y - ay) - o.r);
-      const squeeze = Math.max(0.55, Math.min(1, (gap - 22) / 70));
-      const per = Math.max(2, Math.round(Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3))) * (squeeze < 0.8 ? 0.6 : 1)));
+      // passing a building on the way: narrow to a column before the yard, widen again after it
+      for (const q of m.buildings) if (q.id !== a.from && q.id !== a.to) gap = Math.min(gap, Math.hypot(q.x - ax, q.y - ay) - VIS.buildingBody);
+      const squeeze = Math.max(0.4, Math.min(1, (gap - 14) / 46));
+      const per = squeeze < 0.75 ? 2 : Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3)));
       // soldiers file out of the door rank by rank instead of appearing as a block
       const age = (m.tick + f.alpha - a.createdTick) / m.bal.tickRate, home = m.buildings[a.from];
       if (!this.fighters.has(a.to) && a.state === 'fighting') this.fighters.set(a.to, a);
