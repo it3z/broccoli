@@ -385,7 +385,7 @@ def build_farm(level):
     stones("Flag", root, 0.95, 0.6, 14, seed=11)
     # main house: plaster drum, wooden band, door and lit windows, broccoli crown roof
     prim("cyl", "Walls", "Plaster", loc=(0, 0, 0.42), scale=(0.52, 0.52, 0.42), parent=root, vertices=28, outline=0.014)
-    prim("cyl", "Band", "Wood", loc=(0, 0, 0.82), scale=(0.56, 0.56, 0.06), parent=root, vertices=28, outline=0.012)
+    prim("cyl", "Band", "TEAM_cloth", loc=(0, 0, 0.82), scale=(0.56, 0.56, 0.07), parent=root, vertices=28, outline=0.012)
     prim("cube", "Door", "WoodDark", loc=(0.0, -0.5, 0.24), scale=(0.13, 0.05, 0.24), parent=root, outline=0.01)
     prim("cube", "DoorGlow", "Window", loc=(0.0, -0.53, 0.2), scale=(0.08, 0.02, 0.16), parent=root, outline=0)
     for i, ax in enumerate((-0.32, 0.32)):
@@ -434,6 +434,7 @@ def build_tower(level):
         r = 0.23 - 0.04 * i / rings
         prim("cyl", f"Course{i}", "Stone" if i % 2 == 0 else "StoneDark", loc=(0, 0, (z0 + z1) / 2), scale=(r, r, (z1 - z0) / 2 * 0.98),
              rot=(0, 0, i * 0.3), parent=root, vertices=10, outline=0.012)
+    prim("cyl", "TeamRing", "TEAM_cloth", loc=(0, 0, top - 0.06), scale=(0.205, 0.205, 0.05), parent=root, vertices=12, outline=0.01)
     prim("cube", "Slit", "Black", loc=(0, -0.21, top * 0.62), scale=(0.025, 0.02, 0.08), parent=root, outline=0)
     prim("cube", "TowerBanner", "TEAM_cloth", loc=(0.0, -0.24, top * 0.36), scale=(0.09, 0.012, 0.17), parent=root, outline=0.01)
     for i in range(5 + level * 2):   # thorn vines
@@ -442,7 +443,7 @@ def build_tower(level):
         prim("cone", f"Thorn{i}", "Leaf", loc=(math.cos(a) * 0.22, math.sin(a) * 0.22, z), scale=(0.028, 0.028, 0.09),
              rot=(math.pi / 2, 0, a - math.pi / 2), parent=root, vertices=6, outline=0.006)
     if level >= 2:   # wooden throwing platform
-        prim("cyl", "Deck", "Wood", loc=(0, 0, top + 0.03), scale=(0.28 + 0.03 * (level - 2), 0.28 + 0.03 * (level - 2), 0.035), parent=root,
+        prim("cyl", "Deck", "TEAM_cloth", loc=(0, 0, top + 0.03), scale=(0.28 + 0.03 * (level - 2), 0.28 + 0.03 * (level - 2), 0.035), parent=root,
              vertices=16, outline=0.012)
     if level >= 4:   # stone crown
         for i in range(8):
@@ -474,8 +475,8 @@ def build_forge():
     stones("Cinder", root, 0.9, 0.55, 10, seed=71, mat="StoneDark", size=(0.05, 0.09))
     prim("cube", "Hall", "Stone", loc=(0, 0.05, 0.36), scale=(0.62, 0.42, 0.36), parent=root, outline=0.014)
     # pitched roof: a scaled, rotated cube reads as a gable from this angle
-    prim("cube", "RoofL", "Roof", loc=(0, -0.13, 0.86), scale=(0.68, 0.3, 0.035), rot=(0.62, 0, 0), parent=root, outline=0.012)
-    prim("cube", "RoofR", "Roof", loc=(0, 0.23, 0.86), scale=(0.68, 0.3, 0.035), rot=(-0.62, 0, 0), parent=root, outline=0.012)
+    prim("cube", "RoofL", "TEAM_cloth", loc=(0, -0.13, 0.86), scale=(0.68, 0.3, 0.035), rot=(0.62, 0, 0), parent=root, outline=0.012)
+    prim("cube", "RoofR", "TEAM_cloth", loc=(0, 0.23, 0.86), scale=(0.68, 0.3, 0.035), rot=(-0.62, 0, 0), parent=root, outline=0.012)
     prim("cyl", "Chimney", "StoneDark", loc=(0.38, 0.2, 1.05), scale=(0.11, 0.11, 0.32), parent=root, vertices=10, outline=0.012)
     prim("cyl", "Mouth", "Black", loc=(0, -0.38, 0.2), scale=(0.2, 0.2, 0.05), rot=(math.pi / 2, 0, 0), parent=root, vertices=16, outline=0.01)
     prim("cyl", "Fire", "Fire", loc=(0, -0.41, 0.17), scale=(0.15, 0.13, 0.03), rot=(math.pi / 2, 0, 0), parent=root, vertices=16, outline=0)

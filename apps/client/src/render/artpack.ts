@@ -50,6 +50,11 @@ export function artFor(id: string, owner: number): HTMLCanvasElement | HTMLImage
   for (let i = 0; i < d.length; i += 4) { const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255; d[i + 3] = Math.round(lum * d[i + 3]); d[i] = r; d[i + 1] = g; d[i + 2] = bl; }
   t.putImageData(px, 0, 0);
   c.drawImage(base, 0, 0);
+  if (owner < 0) {   // neutral buildings read as unclaimed: mostly desaturated, like the stone garrison
+    const im = c.getImageData(0, 0, out.width, out.height), q = im.data;
+    for (let i = 0; i < q.length; i += 4) { const l = q[i] * 0.299 + q[i + 1] * 0.587 + q[i + 2] * 0.114; q[i] = l + (q[i] - l) * 0.3; q[i + 1] = l + (q[i + 1] - l) * 0.3; q[i + 2] = l + (q[i + 2] - l) * 0.3; }
+    c.putImageData(im, 0, 0);
+  }
   c.globalCompositeOperation = 'multiply'; c.drawImage(tint, 0, 0);
   c.globalCompositeOperation = 'destination-in'; c.drawImage(base, 0, 0);   // keep the base silhouette
   tinted.set(key, out);
