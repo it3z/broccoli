@@ -30,3 +30,6 @@ Blender و Material Maker و SpriteSheetMaker و Free Texture Packer و Tiled و
 
 ## حزمة الفن المرسوم (منذ v0.7.0)
 أي PNG في `packages/content/art/` يحل محل الرسم الإجرائي لخانته؛ انظر `docs/ART_ASSETS_NEEDED.md`. لا توجد حالياً ملفات في الحزمة (القوالب في `templates/` لا تُضمَّن).
+
+## أصول Blender (v0.8.0)
+كل ملفات `packages/content/art/*.png` أصلية: صُنعت بـ `tools/blender/broccoli_art.py` من أشكال Blender الأساسية (لا نماذج أو خامات خارجية)، رُندرت بـ Blender 5.3 EEVEE على جهاز المستخدم في 2026‑11‑17، ثم صُغّرت بـ `scripts/import-art.sh`.

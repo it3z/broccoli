@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 export function artPack(root) {
-  const dir = join(root, 'packages/content/art');
+  const dir = process.env.BROCCOLI_ART_DIR || join(root, 'packages/content/art');   // override used by scripts/test-artpack.mjs
   return {
     name: 'artpack',
     setup(b) {
