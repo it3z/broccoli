@@ -50,6 +50,14 @@
   #btnSync.on { background: #2f86c9; border-color: #fff; } #btnAll.on { background: #2a8f4a; border-color: #fff; }
   #hud.flip #left { left: auto; right: calc(5px + var(--sr)); } #hud.flip #right { right: auto; left: calc(5px + var(--sl)); }
   #acts { display: flex; flex-direction: column; gap: 6px; }
+  #heroBar { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+  .ab { height: 50px; max-height: 15vh; border-radius: 14px; background: rgba(16,38,26,.85); border: 2px solid rgba(255,255,255,.2); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; position: relative; opacity: .6; }
+  .ab.ready { opacity: 1; border-color: var(--gold); } .ab.aim { background: var(--gold); color: var(--ink); }
+  .ab b { font-size: 17px; } .ab i { font-style: normal; font-size: 8.5px; font-weight: 800; } .ab u { position: absolute; inset: 0; display: grid; place-items: center; text-decoration: none; font-weight: 900; font-size: 18px; color: #fff; text-shadow: 0 1px 3px #000; }
+  .ab u:empty { display: none; }
+  #crown { color: var(--gold); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+  .grid2 .field { margin: 4px 0; } .grid2 .segb { min-width: 46px; min-height: 34px; padding: 0 8px; font-size: 13px; }
   .act { height: 58px; max-height: 20vh; border-radius: 14px; background: linear-gradient(#48c56c, #2a8f4a); border: 2px solid rgba(255,255,255,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; }
   .act b { font-size: 17px; } .act i { font-style: normal; font-size: 10px; font-weight: 700; } .act u { text-decoration: none; font-size: 10.5px; font-weight: 900; color: var(--gold); direction: ltr; white-space: nowrap; }
   .act:disabled { background: rgba(16,38,26,.75); opacity: .6; }
@@ -105,11 +113,12 @@
       <div class="stat" id="income"></div>
       <div class="stat" id="forgeStat"></div>
       <div class="stat" id="clock"></div>
+      <div class="stat" id="crown"></div>
       <div id="foes"></div>
       <button id="btnPause" aria-label="Pause">⏸</button>
     </div>
     <div class="col" id="left"><div id="pcts"></div><button id="btnSync"><b>⏱</b><span data-i18n="sync"></span></button><button id="btnAll"><span data-i18n="all"></span><b id="allCount"></b></button></div>
-    <div class="col" id="right"><div id="acts"></div></div>
+    <div class="col" id="right"><div id="acts"></div><div id="heroBar"></div></div>
     <div id="hint" class="hidden"></div>
     <div id="toast" class="hidden"></div>
     <pre id="debug" class="hidden"></pre>
@@ -130,9 +139,14 @@
   <section class="screen" id="setup">
     <div class="panel">
       <div id="maps"></div>
+      <div class="grid2">
       <div class="field"><span data-i18n="opponents"></span><div class="seg" id="segOpp"></div></div>
       <div class="field"><span data-i18n="difficulty"></span><div class="seg" id="segDiff"></div></div>
+      <div class="field"><span data-i18n="mode"></span><div class="seg" id="segMode"></div></div>
+      <div class="field"><span data-i18n="seedOpt"></span><div class="seg" id="segSeed"></div></div>
       <div class="field"><span data-i18n="clashRule"></span><div class="seg" id="segClash"></div></div>
+      </div>
+      <div class="field"><span data-i18n="hero"></span><div class="seg" id="segHero"></div></div>
     </div>
     <div class="row">
       <button class="btn alt" data-back data-i18n="back"></button>
@@ -143,7 +157,7 @@
   <section class="screen" id="howto" style="z-index:6">
     <div class="panel">
       <h2 data-i18n="howto"></h2>
-      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h9"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h7"></li></ol>
+      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h9"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h10"></li><li data-i18n="h11"></li><li data-i18n="h7"></li></ol>
     </div>
     <button class="btn alt" data-back data-i18n="back"></button>
   </section>

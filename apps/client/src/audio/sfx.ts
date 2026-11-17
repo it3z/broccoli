@@ -123,6 +123,11 @@ export const sfx = {
   defended: (pan = 0) => { if (gate('defended', 0.2, 2)) { tone(440, 0.09, 'triangle', 0.09, { pan }); tone(554, 0.14, 'triangle', 0.09, { pan, delay: 0.08 }); } },
   upgrade: (pan = 0) => { if (gate('upgrade', 0.2, 3, 0.5)) [660, 880, 1320].forEach((f, i) => tone(f, i === 2 ? 0.2 : 0.1, 'sine', 0.09, { pan, delay: i * 0.09 })); },
   alert: (pan = 0) => { if (gate('alert', 0.5, 2, 0.4)) { duck(); tone(740, 0.11, 'square', 0.055, { pan }); tone(740, 0.11, 'square', 0.055, { pan, delay: 0.17 }); } },
+  seedWarn: (pan = 0) => { if (gate('seedWarn', 0.5, 3, 0.6)) { duck(); [988, 1319, 1568].forEach((f, i) => tone(f, 0.18, 'sine', 0.07, { pan, delay: i * 0.11 })); } },
+  seedClaim: (pan = 0, mine = true) => { if (gate('seedClaim', 0.5, 4, 0.8)) (mine ? [784, 988, 1175, 1568] : [784, 659, 523]).forEach((f, i) => tone(f, 0.2, 'triangle', 0.1, { pan, delay: i * 0.1 })); },
+  bridge: (pan = 0) => { if (gate('bridge', 0.4, 2, 0.6)) { noise(0.5, 0.05, 'bandpass', 380, { pan, sweep: -200 }); tone(70, 0.45, 'sawtooth', 0.04, { pan, slide: 30 }); } },
+  ability: (pan = 0) => { if (gate('ability', 0.15, 2, 0.4)) { noise(0.25, 0.05, 'bandpass', 900, { pan, sweep: 2600, q: 2 }); tone(523, 0.22, 'sine', 0.06, { pan, slide: 520 }); } },
+  zone: (pan = 0) => { if (gate('zone', 0.2, 2, 0.3)) { tone(110, 0.2, 'sine', 0.1, { pan, slide: -50 }); noise(0.18, 0.05, 'lowpass', 500, { pan }); } },
   win: () => { if (live() && on.fx) [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.3, 'triangle', 0.14, { delay: i * 0.14 })); },
   lose: () => { if (live() && on.fx) [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'triangle', 0.12, { delay: i * 0.18 })); },
 };

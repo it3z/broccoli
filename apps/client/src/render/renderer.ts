@@ -39,6 +39,7 @@ export class Renderer {
   private low = false;
   scale = 1; ox = 0; oy = 0; dpr = 1;
   private cacheScale = 1;
+  private gateDown = 1;
   frameMs = 0;          // smoothed frame time, for the perf readout, tests and automatic quality
   drawnSoldiers = 0;    // how many soldier sprites the last frame drew
 
@@ -177,7 +178,8 @@ export class Renderer {
       c.fillStyle = '#e8a52a'; c.beginPath(); c.arc(x, y * TILT, 1.8, 0, 7); c.fill();
     }
     for (const o of map.obstacles) if (o.kind === 'pond') drawPond(c, o.x, o.y, o.r);
-    for (const o of map.obstacles) if (o.kind !== 'pond') drawRock(c, o.x, o.y, o.r);
+    for (const o of map.obstacles) if (o.kind === 'rock') drawRock(c, o.x, o.y, o.r);
+    this.paintRiver(c, match);
     // a few trees stand on the plateau itself; they are drawn live so they can fade when a squad walks behind them
     this.innerTrees = [];
     for (let i = 0; i < 400 && this.innerTrees.length < 9; i++) {
@@ -309,6 +311,7 @@ export class Renderer {
     }
     c.globalAlpha = 1;
     this.rings = this.rings.filter(r => r.t < 1);
+    this.drawObjectives(c, f, dt);
     if (f.drag) this.drawOrderPaths(c, f);
 
     // depth-sorted scene: buildings, soldiers, cheering captors
@@ -486,6 +489,7 @@ export class Renderer {
     c.globalAlpha = 1;
 
     this.drawLabels(c, f, badges, threatened, dt);
+    this.drawObjectiveLabels(c, f);
     if (f.drag) this.drawOrderLabels(c, f);
 
     if (f.box) {
@@ -596,6 +600,116 @@ export class Renderer {
     this.pops = this.pops.filter(p => p.t < 0.9);
   }
 
+  /** River band with sandy banks; a timber bridge over every gap that has no drawbridge. */
+  private paintRiver(c: Ctx, m: Match): void {
+    const riv = m.map.obstacles.filter(o => o.kind === 'river').sort((a, b) => a.y - b.y || a.x - b.x);
+    if (!riv.length) return;
+    const r = riv[0].r, line = () => { c.beginPath(); riv.forEach((o, i) => (i ? c.lineTo(o.x, o.y * TILT) : c.moveTo(o.x, o.y * TILT))); };
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const [w, col] of [[r * 2 + 34, 'rgba(70,58,30,.3)'], [r * 2 + 22, '#d9c992'], [r * 2 + 8, '#c2b077'], [r * 2 - 6, '#4ea5cf'], [r * 0.9, '#3a8fc0']] as const) { c.strokeStyle = col; c.lineWidth = w; line(); c.stroke(); }
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.setLineDash([18, 26]); line(); c.stroke(); c.setLineDash([]);
+    const gates = m.map.obstacles.filter(o => o.kind === 'gate');
+    for (let i = 1; i < riv.length; i++) {
+      const a = riv[i - 1], b = riv[i];
+      if (Math.hypot(b.x - a.x, b.y - a.y) < r * 2.6) continue;
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      if (gates.some(g => Math.hypot(g.x - mx, g.y - my) < r)) continue;
+      this.planks(c, mx, my, r * 2.6, 1);
+    }
+  }
+  /** Timber deck across the river at (x, y); `down` 0..1 lowers it (drawbridges are raised when 0). */
+  private planks(c: Ctx, x: number, y: number, len: number, down: number): void {
+    const py = y * TILT, w = 46, half = len / 2;
+    c.save(); c.translate(x, py);
+    c.fillStyle = 'rgba(20,30,40,.3)'; c.fillRect(-half, 6, len, w * TILT * 0.9);
+    const lift = (1 - down) * 26;
+    c.fillStyle = '#84603a'; c.fillRect(-half, -w * TILT / 2 + 4 - lift, len, w * TILT);
+    c.fillStyle = '#b98a56'; c.fillRect(-half, -w * TILT / 2 - lift, len, w * TILT);
+    c.strokeStyle = 'rgba(90,60,30,.6)'; c.lineWidth = 1.2;
+    for (let k = -half + 8; k < half; k += 10) { c.beginPath(); c.moveTo(k, -w * TILT / 2 - lift); c.lineTo(k, w * TILT / 2 - lift); c.stroke(); }
+    c.fillStyle = '#5a3d22'; for (const sx of [-half - 3, half - 5]) for (const sy of [-w * TILT / 2 - 6, w * TILT / 2 - 6]) c.fillRect(sx, sy - lift * 0.4, 8, 14 + lift * 0.4);
+    c.restore();
+  }
+
+  /** Map objectives drawn on the ground: drawbridge, Golden Seed site, seed rewards, hero zones and shields. */
+  private drawObjectives(c: Ctx, f: Frame, dt: number): void {
+    const m = f.match, t = f.time, R = m.bal.tickRate;
+    if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
+      this.gateDown += ((m.bridge.open ? 1 : 0) - this.gateDown) * Math.min(1, dt * 4);
+      this.planks(c, g.x, g.y, 46 * 2.6, this.gateDown);
+      if (!m.bridge.open || m.bridge.warned) {
+        const k = 0.5 + 0.5 * Math.sin(t * 8);
+        c.strokeStyle = m.bridge.open ? `rgba(255,180,58,${0.5 + 0.4 * k})` : 'rgba(228,59,75,.85)'; c.lineWidth = 5; c.setLineDash([10, 7]);
+        c.beginPath(); c.ellipse(g.x, g.y * TILT, 70, 70 * TILT, 0, 0, 7); c.stroke(); c.setLineDash([]);
+      }
+    }
+    for (const fb of m.buffs) for (const b of m.buildings) {
+      if (b.owner !== fb.player || b.type !== 'farm' || Math.hypot(b.x - fb.x, b.y - fb.y) > m.bal.seed.radius) continue;
+      const k = 0.5 + 0.5 * Math.sin(t * 5 + b.id);
+      c.strokeStyle = `rgba(255,214,90,${0.45 + 0.4 * k})`; c.lineWidth = 6; c.beginPath(); c.ellipse(b.x, b.y * TILT, 70 + k * 6, (70 + k * 6) * TILT * 0.6, 0, 0, 7); c.stroke();
+    }
+    const sd = m.gseed;
+    if (sd) {
+      const b = m.buildings[sd.site], k = 0.5 + 0.5 * Math.sin(t * 6);
+      c.strokeStyle = `rgba(255,214,90,${sd.phase === 'warn' ? 0.4 + 0.5 * k : 0.95})`; c.lineWidth = sd.phase === 'warn' ? 5 : 8; c.setLineDash(sd.phase === 'warn' ? [12, 9] : []);
+      c.beginPath(); c.ellipse(b.x, b.y * TILT, 92, 92 * TILT * 0.62, 0, 0, 7); c.stroke(); c.setLineDash([]);
+      if (sd.phase === 'active' && sd.holder >= 0) {
+        const p = sd.holdTicks / (m.bal.seed.holdSec * R);
+        c.strokeStyle = colorOf(sd.holder); c.lineWidth = 9;
+        c.beginPath(); c.ellipse(b.x, b.y * TILT, 92, 92 * TILT * 0.62, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); c.stroke();
+      }
+    }
+    for (const z of m.zones) {
+      const armed = m.tick >= z.armTick, k = 0.5 + 0.5 * Math.sin(t * 10), y = z.y * TILT;
+      if (z.kind === 'mud') {
+        c.fillStyle = armed ? 'rgba(110,78,40,.55)' : 'rgba(110,78,40,.22)'; c.beginPath(); c.ellipse(z.x, y, z.r, z.r * TILT, 0, 0, 7); c.fill();
+        if (armed) { c.fillStyle = 'rgba(70,48,22,.6)'; for (let i = 0; i < 7; i++) { const a = i * 0.9 + t * 0.3; c.beginPath(); c.ellipse(z.x + Math.cos(a) * z.r * 0.55, y + Math.sin(a) * z.r * 0.4, 7, 4, 0, 0, 7); c.fill(); } }
+      } else {
+        if (armed) {
+          c.strokeStyle = '#4f8a3a'; c.lineWidth = 4; c.lineCap = 'round';
+          for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, rx = z.x + Math.cos(a) * z.r * 0.7, ry = y + Math.sin(a) * z.r * 0.5; c.beginPath(); c.moveTo(rx, ry); c.quadraticCurveTo(rx + 6, ry - 18, rx - 2, ry - 26 - k * 4); c.stroke(); }
+        }
+      }
+      c.strokeStyle = z.kind === 'snare' && !armed ? `rgba(228,59,75,${0.5 + 0.5 * k})` : colorOf(z.owner); c.lineWidth = armed ? 3 : 5; c.setLineDash(armed ? [] : [9, 7]);
+      c.beginPath(); c.ellipse(z.x, y, z.r, z.r * TILT, 0, 0, 7); c.stroke(); c.setLineDash([]);
+    }
+    for (const fb of m.bbuffs) {
+      const b = m.buildings[fb.building], y = b.y * TILT;
+      if (fb.kind === 'bulwark') {
+        c.fillStyle = 'rgba(140,220,255,.16)'; c.strokeStyle = 'rgba(160,230,255,.85)'; c.lineWidth = 3;
+        c.beginPath(); c.ellipse(b.x, y - 30, 66, 74, 0, Math.PI, Math.PI * 2); c.lineTo(b.x + 66, y); c.ellipse(b.x, y, 66, 66 * TILT * 0.55, 0, 0, Math.PI); c.closePath(); c.fill(); c.stroke();
+      } else {
+        const k = 0.5 + 0.5 * Math.sin(t * 14);
+        c.fillStyle = `rgba(255,180,58,${0.25 + 0.25 * k})`; c.beginPath(); c.arc(b.x, y - buildingTop('tower', b.level) + 18, 22, 0, 7); c.fill();
+      }
+    }
+  }
+
+  /** Countdowns over objectives: drawbridge seconds, seed warning and hold time, crown on the bloom. */
+  private drawObjectiveLabels(c: Ctx, f: Frame): void {
+    const m = f.match, R = m.bal.tickRate, fs = Math.max(22, VIS.badgeMinPx / this.scale);
+    c.font = `800 ${fs}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
+      const s = Math.max(0, Math.ceil((m.bridge.nextTick - m.tick) / R));
+      this.pill(c, g.x, g.y * TILT - 58, `${m.bridge.open ? '🌉' : '⛔'} ${s}`, fs, m.bridge.open ? (m.bridge.warned ? '#d98a00' : 'rgba(16,38,26,.9)') : '#a3222f', '#fff', null);
+    }
+    const sd = m.gseed;
+    if (sd) {
+      const b = m.buildings[sd.site], y = b.y * TILT - buildingTop(b.type, b.level) - 46;
+      const txt = sd.phase === 'warn' ? `🌰 ${Math.ceil((sd.atTick - m.tick) / R)}` : sd.holder >= 0 ? `🌰 ${Math.ceil((m.bal.seed.holdSec * R - sd.holdTicks) / R)}` : '🌰';
+      this.pill(c, b.x, y, txt, fs * 1.1, '#ffd95a', '#7a5a10', null, '#3b2a05');
+    }
+    if (m.mode === 'control') {
+      const b = m.buildings[m.sites[0]];
+      this.pill(c, b.x, b.y * TILT - buildingTop(b.type, b.level) - (sd && sd.site === b.id ? 90 : 46), '👑', fs * 1.1, '#ffd95a', '#7a5a10', null, '#3b2a05');
+    }
+    for (const fb of m.pbuffs) for (const a of m.armies) if (a.owner === fb.player && a.state === 'moving') {
+      c.strokeStyle = 'rgba(255,214,90,.8)'; c.lineWidth = 3; c.lineCap = 'round';
+      const ang = this.aview.get(a.id)?.ang ?? 0;
+      for (let i = -1; i <= 1; i++) { const bx = a.x - Math.cos(ang) * 30 - Math.sin(ang) * i * 10, by = (a.y - Math.sin(ang) * 30 + Math.cos(ang) * i * 10) * TILT - 12; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx - Math.cos(ang) * 22, by - Math.sin(ang) * 22 * TILT); c.stroke(); }
+    }
+  }
+
   private drawOrderPaths(c: Ctx, f: Frame): void {
     const m = f.match, d = f.drag!, t = f.time;
     const target = d.target !== null ? m.buildings[d.target] : null;
@@ -603,7 +717,8 @@ export class Renderer {
     for (const id of d.sources) {
       if (id === d.target) continue;
       const b = m.buildings[id];
-      const pts = target ? m.paths[id][target.id].pts : [{ x: b.x, y: b.y }, { x: d.wx, y: d.wy }];
+      const route = target ? m.routeFor(id, target.id, f.human).route : 0;
+      const pts = target ? (route === 1 && m.closedPaths ? m.closedPaths : m.paths)[id][target.id].pts : [{ x: b.x, y: b.y }, { x: d.wx, y: d.wy }];
       for (const [lw, cl] of [[17, 'rgba(10,30,15,.5)'], [10, col]] as const) {
         c.strokeStyle = cl; c.lineWidth = lw; c.lineCap = 'round'; c.lineJoin = 'round';
         c.setLineDash(lw === 10 ? [20, 15] : []); c.lineDashOffset = -t * 80;

@@ -1,4 +1,4 @@
-import { MAPS, type Difficulty, type Match } from '../../../packages/simulation/src/index';
+import { MAPS, type Difficulty, type HeroId, type Match } from '../../../packages/simulation/src/index';
 import { Session, type SessionOpts } from './game';
 import { colorOf } from './render/art';
 import { levels, setLevel, sfx, unlockAudio } from './audio/sfx';
@@ -23,6 +23,7 @@ let roadClash = false;
 const setup: SessionOpts = {
   mapIndex: Number(store.get('map', '0')) % MAPS.length, opponents: 1,
   difficulty: store.get('diff', 'normal') as Difficulty, seed: 1, lowFx: false, roadClash: false, flipHud: false, firstMatch: false,
+  goldenSeed: store.get('gseed', '1') === '1', mode: 'conquest', hero: (store.get('hero', 'sprig') || null) as HeroId | null,
 };
 
 function show(id: string | null): void {
@@ -51,7 +52,7 @@ function renderSetup(): void {
     const c = cv.getContext('2d')!;
     c.fillStyle = map.biome === 'forest' ? '#2f7a3f' : '#6cbc52'; c.fillRect(0, 0, 240, 135);
     const k = 240 / map.width;
-    for (const o of map.obstacles) { c.fillStyle = o.kind === 'pond' ? '#58b3ec' : '#9a9da4'; c.beginPath(); c.ellipse(o.x * k, o.y * k, o.r * k, o.r * k * 0.8, 0, 0, 7); c.fill(); }
+    for (const o of map.obstacles) { c.fillStyle = o.kind === 'rock' ? '#9a9da4' : o.kind === 'gate' ? '#b98a56' : '#58b3ec'; c.beginPath(); c.ellipse(o.x * k, o.y * k, o.r * k, o.r * k * 0.8, 0, 0, 7); c.fill(); }
     for (const b of map.buildings) {
       c.fillStyle = colorOf(b.slot); c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 1.5; c.beginPath();
       if (b.type === 'tower') { c.moveTo(b.x * k, b.y * k - 8); c.lineTo(b.x * k + 6, b.y * k + 5); c.lineTo(b.x * k - 6, b.y * k + 5); c.closePath(); }
@@ -70,6 +71,13 @@ function renderSetup(): void {
     v => { setup.opponents = Number(v); renderSetup(); });
   seg($('segDiff'), (['easy', 'normal', 'hard'] as const).map(d => ({ v: d, label: t(d) })), setup.difficulty,
     v => { setup.difficulty = v as Difficulty; store.set('diff', v); renderSetup(); });
+  const hasBloom = MAPS[setup.mapIndex].id !== 'spring_bridge';   // the bridge map has no fair central building
+  if (!hasBloom) setup.mode = 'conquest';
+  seg($('segMode'), [{ v: 'conquest', label: t('conquest') }, ...(hasBloom ? [{ v: 'control', label: t('control') }] : [])], setup.mode,
+    v => { setup.mode = v as 'conquest' | 'control'; renderSetup(); });
+  seg($('segSeed'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], setup.goldenSeed ? '1' : '0', v => { setup.goldenSeed = v === '1'; store.set('gseed', v); renderSetup(); });
+  seg($('segHero'), [{ v: '', label: t('none') }, ...(['sprig', 'armorleaf', 'turnip'] as const).map(h => ({ v: h, label: t(h) }))], setup.hero ?? '',
+    v => { setup.hero = (v || null) as HeroId | null; store.set('hero', v); renderSetup(); });
   seg($('segClash'), [{ v: '0', label: t('off') }, { v: '1', label: t('on') }], roadClash ? '1' : '0', v => { roadClash = v === '1'; renderSetup(); });
 }
 

@@ -1,13 +1,15 @@
-import { AIController, BALANCE, MAPS, Match, type Building, type BuildingType, type Difficulty, type Pct } from '../../../packages/simulation/src/index';
+import { AIController, BALANCE, MAPS, Match, Rng, type Building, type BuildingType, type Difficulty, type HeroId, type Pct } from '../../../packages/simulation/src/index';
 import { Renderer, colorOf, type BoxState, type DragState } from './render/renderer';
 import { VIS } from './render/config';
 import { setIntensity, setScene, sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 import { toLocal, toScreenPx } from './ui/orient';
 
-export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean }
+export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean;
+  goldenSeed: boolean; mode: 'conquest' | 'control'; hero: HeroId | null }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ICON: Record<BuildingType, string> = { farm: '🥦', tower: '🗼', forge: '☀️' };
+const ABI: Record<string, string> = { burst: '🌱', rush: '💨', bulwark: '🛡️', volley: '🏹', mud: '🟤', snare: '🌿' };
 const MAX_DT = 0.1; // a long frame (tab switch, Safari in background) never advances the match by more than this
 
 /** One running match: fixed-step simulation, AI, touch input, HUD and rendering glue. */
@@ -22,6 +24,8 @@ export class Session {
   sync = false;
   autoLow = false;
   onFirstOrder: (() => void) | null = null;
+  /** Hero ability waiting for a target tap (slot index), or null. */
+  aiming: number | null = null;
   /** Test/dev hooks: let an AI play the human seat, and run several simulation steps per frame. */
   autopilot: AIController | null = null;
   speed = 1;
@@ -42,7 +46,10 @@ export class Session {
     const map = MAPS[opts.mapIndex];
     const players = [{ slot: 0, team: 0, isAI: false }];
     for (let i = 1; i <= Math.min(opts.opponents, map.slots - 1); i++) players.push({ slot: i, team: i, isAI: true });
-    this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash });
+    // computer opponents get a hero too (picked from the match seed), so abilities are in play on both sides
+    const pick = new Rng(opts.seed + 31), HEROES: HeroId[] = ['sprig', 'armorleaf', 'turnip'];
+    const heroes = players.map((_, i) => (i === 0 ? opts.hero : opts.hero ? HEROES[pick.int(3)] : null));
+    this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash, goldenSeed: opts.goldenSeed, mode: opts.mode, heroes });
     for (let i = 1; i < players.length; i++) this.ais.push(new AIController(i, opts.difficulty, opts.seed));
     this.renderer = new Renderer(this.canvas, $('stage'));
     this.bind();
@@ -125,6 +132,12 @@ export class Session {
       else if (e.type === 'clash_hit') sfx.hit(this.pan(e.x));
       else if (e.type === 'army_sent') sfx.march(bx(e.from));
       else if (e.type === 'order_queued' && e.player === this.human) sfx.queued();
+      else if (e.type === 'seed_warning') { sfx.seedWarn(bx(e.building)); this.toast(t('seedWarn').replace('{s}', String(m.bal.seed.warnSec)), true); }
+      else if (e.type === 'seed_claimed') { const mine = m.sameTeam(e.player, this.human); sfx.seedClaim(bx(e.building), mine); this.toast(t(mine ? 'seedYou' : 'seedThem'), mine); }
+      else if (e.type === 'bridge_warning') { const g = m.map.obstacles.find(o => o.kind === 'gate')!; sfx.bridge(this.pan(g.x)); this.toast(t(e.closing ? 'bridgeClose' : 'bridgeOpen').replace('{s}', String(m.bal.bridge.warnSec)), true); }
+      else if (e.type === 'bridge_changed') sfx.bridge(this.pan(m.map.obstacles.find(o => o.kind === 'gate')!.x));
+      else if (e.type === 'ability_used') sfx.ability(this.pan(e.x ?? 800));
+      else if (e.type === 'zone_armed') { const z = m.zones.find(q => q.id === e.zone); if (z) sfx.zone(this.pan(z.x)); }
       else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0 && m.buildings[e.building].owner === this.human) sfx.defended(bx(e.building));
       else if ((e.type === 'upgraded' || e.type === 'converted') && m.buildings[e.building].owner === this.human) sfx.upgrade(bx(e.building));
       else if (e.type === 'order_rejected' && e.player === this.human && !this.autopilot) this.toast(t(e.reason === 'empty' ? 'msgEmpty' : e.reason === 'cooldown' ? 'msgCooldown' : 'msgNotYours'));
@@ -227,6 +240,7 @@ export class Session {
         return;
       }
       if (st.moved || st.long) return;
+      if (this.aiming !== null) { this.aimAt(st.x0, st.y0, st.down); return; }
       if (st.down === null) { this.selection.clear(); return; }
       const b = m.buildings[st.down];
       if (this.selection.size > 0 && !this.selection.has(b.id)) { this.send([...this.selection], b.id); this.selection.clear(); }
@@ -252,8 +266,34 @@ export class Session {
     });
   }
 
+  /** Resolve a hero ability on the tapped spot or building. */
+  private aimAt(sx: number, sy: number, building: number | null): void {
+    const slot = this.aiming!, def = this.match.heroAbilities(this.human)[slot], m = this.match;
+    const b = building !== null ? m.buildings[building] : null, w = this.renderer.toWorld(sx, sy);
+    let ok = false;
+    if (def.target === 'own') ok = !!b && b.owner === this.human;
+    else if (def.target === 'ownTower') ok = !!b && b.owner === this.human && b.type === 'tower';
+    else ok = m.inReach(this.human, w.x, w.y, def.range ?? 500);
+    if (!ok) { sfx.deny(); this.toast(t('aimBad')); return; }
+    m.enqueue({ type: 'ability', player: this.human, slot, ...(def.target === 'point' ? { x: w.x, y: w.y } : { building: b!.id }) });
+    this.aiming = null; this.selection.clear();
+  }
+
   // ---------- HUD ----------
   private buildHud(): void {
+    const hb = $('heroBar'); hb.innerHTML = '';
+    this.match.heroAbilities(this.human).forEach((def, slot) => {
+      const btn = document.createElement('button'); btn.className = 'ab'; btn.id = 'ab' + slot;
+      btn.innerHTML = `<b>${ABI[def.id]}</b><i>${t('ab_' + def.id)}</i><u></u>`;
+      btn.onclick = () => {
+        unlockAudio();
+        if (!this.match.abilityReady(this.human, slot)) { sfx.deny(); return; }
+        if (this.aiming === slot) { this.aiming = null; return; }
+        if (def.target === 'none') { this.match.enqueue({ type: 'ability', player: this.human, slot }); return; }
+        this.aiming = slot; sfx.tap(); this.toast(t('aim_' + def.target), true);
+      };
+      hb.appendChild(btn);
+    });
     const left = $('pcts'); left.innerHTML = '';
     for (const p of [100, 75, 50, 25] as Pct[]) {
       const b = document.createElement('button'); b.className = 'pct'; b.dataset.pct = String(p); b.textContent = p + '%';
@@ -289,6 +329,7 @@ export class Session {
   private set(id: string, v: string, html = false): void {
     if (this.cache.get(id) === v) return;
     this.cache.set(id, v);
+    if (!document.getElementById(id)) return;
     if (html) $(id).innerHTML = v; else $(id).textContent = v;
   }
 
@@ -310,6 +351,18 @@ export class Session {
       `<span class="chip${p.alive ? '' : ' dead'}" style="--c:${colorOf(p.id)}"><i>⌂</i>${m.buildingCount(p.id)}</span>`).join(''), true);
     document.querySelectorAll<HTMLElement>('.pct').forEach(b => b.classList.toggle('on', Number(b.dataset.pct) === this.pct));
     $('btnSync').classList.toggle('on', this.sync);
+    this.match.heroAbilities(this.human).forEach((_, slot) => {
+      const el = $('ab' + slot), left = Math.max(0, (m.players[this.human].cd[slot] - m.tick) / m.bal.tickRate);
+      el.classList.toggle('ready', left === 0); el.classList.toggle('aim', this.aiming === slot);
+      this.set('ab' + slot + 'cd', left > 0 ? String(Math.ceil(left)) : '');
+      const u = el.querySelector('u')!; if (u.textContent !== this.cache.get('ab' + slot + 'cd')) u.textContent = this.cache.get('ab' + slot + 'cd') ?? '';
+    });
+    if (m.mode === 'control') {
+      const goal = m.bal.control.holdSec * m.bal.tickRate, mine = m.control[m.players[this.human].team] ?? 0;
+      const best = Math.max(0, ...m.control.filter((_, tm) => tm !== m.players[this.human].team).map(v => v ?? 0));
+      this.set('crown', `👑 ${Math.floor(mine / m.bal.tickRate)}/${m.bal.control.holdSec} · ${Math.floor(best / m.bal.tickRate)}`);
+      void goal;
+    } else this.set('crown', '');
     const owned = m.buildingCount(this.human);
     $('btnAll').classList.toggle('on', this.selection.size > 0 && this.selection.size === owned);
     this.set('allCount', `${this.selection.size}/${owned}`);

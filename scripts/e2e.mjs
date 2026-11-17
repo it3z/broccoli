@@ -219,8 +219,8 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await page.tap('#btnResume');
 
   // danger marker: force an enemy army at one of my buildings and look at the screen
-  await page.evaluate(() => { const m = window.__broccoli.match; m.buildings[2].garrison = 30; m.enqueue({ type: 'send', player: 1, from: [2], to: 8, pct: 75 }); });
-  await page.waitForTimeout(2500);
+  await page.evaluate(() => { const m = window.__broccoli.match, e = m.buildings.filter(b => b.owner === 1).sort((a, b) => m.paths[a.id][8].len - m.paths[b.id][8].len).pop(); m.buildings[8].owner = 0; e.garrison = 30; m.enqueue({ type: 'send', player: 1, from: [e.id], to: 8, pct: 75 }); });
+  await page.waitForTimeout(900);
   await page.screenshot({ path: join(shots, '8-under-attack.png') });
   s = await state(page);
   check('enemy army is marching on my building', s.armies.some(a => a.owner === 1 && a.to === 8));
