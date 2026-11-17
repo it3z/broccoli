@@ -153,5 +153,86 @@
   "clash": {
     "radius": 34,
     "rate": 7
+  },
+  "seed": {
+    "firstAtSec": 35,
+    "intervalSec": 60,
+    "warnSec": 8,
+    "holdSec": 8,
+    "buffSec": 25,
+    "prodMult": 1.8,
+    "radius": 360
+  },
+  "control": {
+    "holdSec": 60
+  },
+  "bridge": {
+    "openSec": 15,
+    "closedSec": 12,
+    "warnSec": 3
+  },
+  "heroStartCooldownSec": 10,
+  "heroes": {
+    "sprig": {
+      "role": "boost",
+      "abilities": [
+        {
+          "id": "burst",
+          "target": "own",
+          "cooldownSec": 30,
+          "amount": 10
+        },
+        {
+          "id": "rush",
+          "target": "none",
+          "cooldownSec": 35,
+          "durationSec": 6,
+          "mult": 1.45
+        }
+      ]
+    },
+    "armorleaf": {
+      "role": "defense",
+      "abilities": [
+        {
+          "id": "bulwark",
+          "target": "own",
+          "cooldownSec": 30,
+          "durationSec": 10,
+          "mult": 1.8
+        },
+        {
+          "id": "volley",
+          "target": "ownTower",
+          "cooldownSec": 35,
+          "durationSec": 8,
+          "mult": 0.4
+        }
+      ]
+    },
+    "turnip": {
+      "role": "control",
+      "abilities": [
+        {
+          "id": "mud",
+          "target": "point",
+          "cooldownSec": 30,
+          "durationSec": 7,
+          "radius": 95,
+          "armSec": 1,
+          "mult": 0.45,
+          "range": 520
+        },
+        {
+          "id": "snare",
+          "target": "point",
+          "cooldownSec": 40,
+          "durationSec": 2.5,
+          "radius": 75,
+          "armSec": 1.5,
+          "range": 520
+        }
+      ]
+    }
   }
 }

@@ -1,7 +1,8 @@
 import type {
-  Army, Balance, Building, BuildingType, Command, MapDef, MatchConfig, Pct, PendingOrder, Player, Projectile, SimEvent,
+  AbilityDef, Army, Balance, Building, BuildingType, Command, HeroId, MapDef, MatchConfig, Pct, PendingOrder, Player, Projectile, SimEvent, Zone,
 } from './types';
 import { buildNetwork, pointAt, type Path } from './paths';
+import { Rng } from './rng';
 import type { Vec } from './types';
 
 const PCTS = [25, 50, 75, 100];
@@ -29,6 +30,23 @@ export class Match {
   readonly paths: Path[][];
   /** The roads drawn on the map: exactly the polylines that army routes are built from. */
   readonly roads: Vec[][];
+  readonly passR: number[];
+  /** Drawbridge maps: routes and roads while the gate is closed, and where each open route crosses the gate. */
+  readonly closedPaths: Path[][] | null = null;
+  readonly gateSpan: ([number, number] | null)[][] = [];
+  bridge: { open: boolean; nextTick: number; warned: boolean } | null = null;
+  readonly goldenSeed: boolean;
+  gseed: { site: number; phase: 'warn' | 'active'; atTick: number; holder: number; holdTicks: number } | null = null;
+  nextSeedTick = 0;
+  buffs: { player: number; x: number; y: number; untilTick: number }[] = [];
+  readonly mode: 'conquest' | 'control';
+  /** Buildings closest to the middle of the map: Golden Seed sites, and (first one) the control-mode bloom. */
+  readonly sites: number[];
+  control: number[] = [];   // ticks each team has held the bloom
+  zones: Zone[] = [];
+  bbuffs: { building: number; kind: 'bulwark' | 'volley'; untilTick: number; mult: number }[] = [];
+  pbuffs: { player: number; kind: 'rush'; untilTick: number; mult: number }[] = [];
+  private rng: Rng;
   readonly seed: number;
   tick = 0;
   players: Player[] = [];
@@ -51,14 +69,35 @@ export class Match {
     this.map = cfg.map;
     this.seed = cfg.seed;
     this.roadClash = !!cfg.roadClash;
+    this.goldenSeed = !!cfg.goldenSeed;
+    this.mode = cfg.mode ?? 'conquest';
+    this.rng = new Rng(cfg.seed * 2654435761 + 7);
     const net = buildNetwork(cfg.map);
-    this.paths = net.paths; this.roads = net.roads;
+    this.paths = net.paths; this.roads = net.roads; this.passR = net.passR;
+    const gates = cfg.map.obstacles.filter(o => o.kind === 'gate');
+    if (gates.length) {
+      this.closedPaths = buildNetwork(cfg.map, true).paths;
+      this.bridge = { open: true, nextTick: Math.round(cfg.balance.bridge.openSec * cfg.balance.tickRate), warned: false };
+      this.gateSpan = this.paths.map(row => row.map(p => {
+        let dIn = -1, dOut = -1;
+        for (let d = 0; d <= p.len; d += 4) {
+          const q = pointAt(p, d), inside = gates.some(g => Math.hypot(q.x - g.x, q.y - g.y) < g.r + 6);
+          if (inside && dIn < 0) dIn = d;
+          if (inside) dOut = d;
+        }
+        return dIn < 0 ? null : [dIn, dOut + 4] as [number, number];
+      }));
+    }
+    const cx = cfg.map.width / 2, cy = cfg.map.height / 2;
+    this.sites = cfg.map.buildings.map((b, i) => [i, Math.hypot(b.x - cx, b.y - cy)]).sort((a, b) => a[1] - b[1]).slice(0, 4).map(v => v[0]);
+    this.nextSeedTick = Math.round(cfg.balance.seed.firstAtSec * cfg.balance.tickRate);
     const slotToPlayer = new Map<number, number>();
     cfg.players.forEach((p, i) => {
       slotToPlayer.set(p.slot, i);
       this.players.push({
         id: i, team: p.team, isAI: p.isAI, alive: true, morale: this.bal.morale.start, lastActionTick: 0,
         stats: { produced: 0, lost: 0, killed: 0, captures: 0 },
+        hero: cfg.heroes?.[i] ?? null, cd: [0, 0].map(() => Math.round(this.bal.heroStartCooldownSec * this.bal.tickRate)),
       });
     });
     cfg.map.buildings.forEach((b, i) => {
@@ -76,7 +115,11 @@ export class Match {
   }
   capacity(b: Building): number { return b.type === 'farm' ? this.bal.farm.levels[b.level - 1].cap : 0; }
   prodRate(b: Building): number {
-    return b.type === 'farm' && b.owner >= 0 && !b.busyKind ? this.bal.farm.levels[b.level - 1].prod : 0;
+    if (b.type !== 'farm' || b.owner < 0 || b.busyKind) return 0;
+    const base = this.bal.farm.levels[b.level - 1].prod;
+    // Golden Seed reward: villages of the claimer near the seed grow faster for a while
+    for (const f of this.buffs) if (f.player === b.owner && Math.hypot(b.x - f.x, b.y - f.y) <= this.bal.seed.radius) return base * this.bal.seed.prodMult;
+    return base;
   }
   towerRange(b: Building): number { return b.type === 'tower' ? this.bal.tower.levels[b.level - 1].range : 0; }
   upgradeCost(b: Building): number | null {
@@ -104,7 +147,8 @@ export class Match {
       : b.type === 'tower' ? this.bal.tower.levels[b.level - 1].def : this.bal.forge.def;
     if (b.owner < 0) return base;
     const p = this.players[b.owner];
-    return base * (1 + this.bal.morale.defensePerPoint * p.morale) * (1 + this.bal.forge.defenseBonus * this.forgeCount(b.owner));
+    const wall = this.bbuffs.find(x => x.building === b.id && x.kind === 'bulwark');
+    return base * (1 + this.bal.morale.defensePerPoint * p.morale) * (1 + this.bal.forge.defenseBonus * this.forgeCount(b.owner)) * (wall ? wall.mult : 1);
   }
   speedFactor(player: number): number { return 1 + this.bal.morale.speedPerPoint * this.players[player].morale; }
   /** Units a send order of `pct` takes from this building right now: floor, but never less than 1 if any unit is home. */
@@ -150,6 +194,7 @@ export class Match {
     const p = this.players[cmd.player];
     if (!p || !p.alive) return;
     if (cmd.type === 'surrender') { this.eliminate(p, true); return; }
+    if (cmd.type === 'ability') { this.ability(p, cmd); return; }
     if (cmd.type === 'send') {
       const target = this.buildings[cmd.to];
       if (!target || !PCTS.includes(cmd.pct) || !Array.isArray(cmd.from)) return;
@@ -190,9 +235,18 @@ export class Match {
   }
 
   /** Travel time in seconds for a group of `player` leaving now. */
-  eta(from: number, to: number, player: number): number {
-    return this.paths[from][to].len / (this.bal.unitSpeed * this.speedFactor(player));
+  eta(from: number, to: number, player: number): number { return this.routeFor(from, to, player).eta; }
+
+  /** The route a group leaving now would take. With the drawbridge closed it either waits at the gate or goes round. */
+  routeFor(from: number, to: number, player: number): { route: 0 | 1; eta: number } {
+    const v = this.bal.unitSpeed * this.speedFactor(player), open = this.paths[from][to], span = this.gateSpan[from]?.[to];
+    if (!this.bridge || !span) return { route: 0, eta: open.len / v };
+    if (this.bridge.open) return { route: 0, eta: open.len / v };
+    const waitSec = Math.max(0, (this.bridge.nextTick - this.tick) / this.bal.tickRate);
+    const viaGate = Math.max(span[0] / v, waitSec) + (open.len - span[0]) / v, round = this.closedPaths![from][to].len / v;
+    return viaGate <= round ? { route: 0, eta: viaGate } : { route: 1, eta: round };
   }
+  pathOf(a: Army): Path { return a.route === 1 && this.closedPaths ? this.closedPaths[a.from][a.to] : this.paths[a.from][a.to]; }
 
   /** The one place units leave a garrison: deduct once, create one Army. */
   private launch(p: Player, b: Building, to: number, pct: Pct): boolean {
@@ -205,6 +259,7 @@ export class Match {
     const army: Army = {
       id: this.nextId++, owner: p.id, from: b.id, to, units: count, startUnits: count, state: 'moving',
       dist: 0, speed: this.bal.unitSpeed * this.speedFactor(p.id), createdTick: this.tick, engage: 0, foe: 0, wound: 0, heldTicks: 0,
+      route: this.routeFor(b.id, to, p.id).route,
       x: b.x, y: b.y, px: b.x, py: b.y,
     };
     this.armies.push(army);
@@ -279,11 +334,17 @@ export class Match {
     }
 
     // 4. marching
+    this.features();
     for (const a of this.armies) {
       a.px = a.x; a.py = a.y;
       if (a.state !== 'moving') continue;
-      const path = this.paths[a.from][a.to];
-      a.dist = Math.min(path.len, a.dist + a.speed * dt);
+      const path = this.pathOf(a);
+      let step = a.speed * dt * this.speedMult(a);
+      // closed drawbridge: groups not yet on it stop at the gate; groups already on it finish crossing
+      const span = a.route === 0 && this.bridge && !this.bridge.open ? this.gateSpan[a.from][a.to] : null;
+      if (span && a.dist < span[0]) step = Math.min(step, Math.max(0, span[0] - 2 - a.dist));
+      a.heldTicks += Math.max(0, 1 - step / (a.speed * dt));   // time lost to mud, snares and the gate (in ticks)
+      a.dist = Math.min(path.len, a.dist + step);
       const p = pointAt(path, a.dist);
       a.x = p.x; a.y = p.y;
     }
@@ -297,7 +358,7 @@ export class Match {
     // 6. arrivals and battles, in army-id order so simultaneous attackers resolve one after another
     for (const a of this.armies) {
       if (a.units <= 0) continue;
-      if (a.state === 'moving' && a.dist >= this.paths[a.from][a.to].len) this.arrive(a);
+      if (a.state === 'moving' && a.dist >= this.pathOf(a).len) this.arrive(a);
       if (a.state === 'fighting') this.fight(a, dt);
     }
     this.armies = this.armies.filter(a => a.state === 'moving' || a.state === 'fighting' || a.state === 'clashing');
@@ -315,11 +376,99 @@ export class Match {
       if (p.alive && this.buildingCount(p.id) === 0 && !this.armies.some(a => a.owner === p.id)) this.eliminate(p, false);
     }
     const teams = new Set(this.players.filter(p => p.alive).map(p => p.team));
+    if (this.mode === 'control' && this.phase === 'playing') {
+      const bloom = this.buildings[this.sites[0]];
+      if (bloom.owner >= 0) {
+        const tm = this.players[bloom.owner].team;
+        this.control[tm] = (this.control[tm] ?? 0) + 1;
+        if (this.control[tm] >= bal.control.holdSec * bal.tickRate) { this.finish(tm); return; }
+      }
+    }
     if (teams.size <= 1) this.finish(teams.size === 1 ? [...teams][0] : null);
     else if (this.tick >= bal.matchTimeLimitSec * bal.tickRate) this.finish(this.leaderOnTime());
   }
 
   /** Experimental road-clash rule: hostile groups that meet stop and wear each other down; the survivor marches on. */
+  /** March speed multiplier right now: Green Rush speeds own groups up, armed mud slows hostile ones, a snare roots them. */
+  private speedMult(a: Army): number {
+    let k = 1;
+    for (const f of this.pbuffs) if (f.player === a.owner && f.kind === 'rush') k *= f.mult;
+    for (const z of this.zones) {
+      if (this.tick < z.armTick || this.sameTeam(z.owner, a.owner) || (a.x - z.x) ** 2 + (a.y - z.y) ** 2 > z.r * z.r) continue;
+      k *= z.kind === 'snare' ? 0 : z.mult;
+    }
+    return k;
+  }
+
+  /** Map events and timed effects: Golden Seed, drawbridge, hero effects expiring. */
+  private features(): void {
+    const bal = this.bal, rate = bal.tickRate;
+    if (this.bridge && this.tick >= this.bridge.nextTick - bal.bridge.warnSec * rate && !this.bridge.warned) {
+      this.bridge.warned = true;
+      this.events.push({ type: 'bridge_warning', closing: this.bridge.open, atTick: this.bridge.nextTick });
+    }
+    if (this.bridge && this.tick >= this.bridge.nextTick) {
+      this.bridge.open = !this.bridge.open; this.bridge.warned = false;
+      this.bridge.nextTick = this.tick + Math.round((this.bridge.open ? bal.bridge.openSec : bal.bridge.closedSec) * rate);
+      this.events.push({ type: 'bridge_changed', open: this.bridge.open });
+    }
+    if (this.goldenSeed) {
+      if (!this.gseed && this.tick >= this.nextSeedTick - bal.seed.warnSec * rate) {
+        const site = this.sites[this.rng.int(this.sites.length)];
+        this.gseed = { site, phase: 'warn', atTick: this.nextSeedTick, holder: -1, holdTicks: 0 };
+        this.events.push({ type: 'seed_warning', building: site, atTick: this.nextSeedTick });
+      }
+      const sd = this.gseed;
+      if (sd && sd.phase === 'warn' && this.tick >= sd.atTick) { sd.phase = 'active'; this.events.push({ type: 'seed_spawned', building: sd.site }); }
+      if (sd && sd.phase === 'active') {
+        const own = this.buildings[sd.site].owner;
+        if (own < 0) { sd.holder = -1; sd.holdTicks = 0; }
+        else if (own === sd.holder) sd.holdTicks++;
+        else { sd.holder = own; sd.holdTicks = 1; }        // a capture during the hold restarts the count for the new owner
+        if (sd.holder >= 0 && sd.holdTicks >= bal.seed.holdSec * rate) {
+          const b = this.buildings[sd.site], until = this.tick + Math.round(bal.seed.buffSec * rate);
+          this.buffs.push({ player: sd.holder, x: b.x, y: b.y, untilTick: until });
+          this.events.push({ type: 'seed_claimed', building: sd.site, player: sd.holder, untilTick: until });
+          this.gseed = null; this.nextSeedTick = this.tick + Math.round(bal.seed.intervalSec * rate);
+        }
+      }
+      this.buffs = this.buffs.filter(f => f.untilTick > this.tick);
+    }
+    for (const z of this.zones) if (z.armTick === this.tick) this.events.push({ type: 'zone_armed', zone: z.id, kind: z.kind });
+    this.zones = this.zones.filter(z => z.endTick > this.tick);
+    this.bbuffs = this.bbuffs.filter(f => f.untilTick > this.tick && this.buildings[f.building].owner >= 0);
+    this.pbuffs = this.pbuffs.filter(f => f.untilTick > this.tick);
+  }
+
+  heroAbilities(player: number): AbilityDef[] { const h = this.players[player]?.hero; return h ? this.bal.heroes[h].abilities : []; }
+  abilityReady(player: number, slot: number): boolean { const p = this.players[player]; return !!p?.hero && this.tick >= p.cd[slot]; }
+  /** Point targets must be within reach of one of the caster's buildings. */
+  inReach(player: number, x: number, y: number, range: number): boolean {
+    return this.buildings.some(b => b.owner === player && Math.hypot(b.x - x, b.y - y) <= range);
+  }
+
+  private ability(p: Player, cmd: Extract<Command, { type: 'ability' }>): void {
+    const def = this.heroAbilities(p.id)[cmd.slot];
+    if (!def || !this.abilityReady(p.id, cmd.slot)) return;
+    const rate = this.bal.tickRate, dur = Math.round((def.durationSec ?? 0) * rate);
+    const b = cmd.building !== undefined ? this.buildings[cmd.building] : undefined;
+    if (def.target === 'own' && (!b || b.owner !== p.id)) return;
+    if (def.target === 'ownTower' && (!b || b.owner !== p.id || b.type !== 'tower')) return;
+    if (def.target === 'point' && (cmd.x === undefined || cmd.y === undefined || !Number.isFinite(cmd.x) || !Number.isFinite(cmd.y) || !this.inReach(p.id, cmd.x, cmd.y, def.range ?? 500))) return;
+    if (def.id === 'burst') b!.garrison += def.amount ?? 0;
+    else if (def.id === 'rush') this.pbuffs.push({ player: p.id, kind: 'rush', untilTick: this.tick + dur, mult: def.mult ?? 1 });
+    else if (def.id === 'bulwark' || def.id === 'volley') {
+      this.bbuffs = this.bbuffs.filter(f => !(f.building === b!.id && f.kind === def.id));
+      this.bbuffs.push({ building: b!.id, kind: def.id, untilTick: this.tick + dur, mult: def.mult ?? 1 });
+    } else {
+      const arm = this.tick + Math.max(1, Math.round((def.armSec ?? 0) * rate));
+      this.zones.push({ id: this.nextId++, owner: p.id, kind: def.id as Zone['kind'], x: cmd.x!, y: cmd.y!, r: def.radius ?? 80, armTick: arm, endTick: arm + dur, mult: def.mult ?? 0 });
+    }
+    p.cd[cmd.slot] = this.tick + Math.round(def.cooldownSec * rate);
+    p.lastActionTick = this.tick;
+    this.events.push({ type: 'ability_used', player: p.id, ability: def.id, building: b?.id, x: cmd.x ?? b?.x, y: cmd.y ?? b?.y });
+  }
+
   private clashes(dt: number): void {
     const R2 = this.bal.clash.radius ** 2, list = this.armies;
     for (let i = 0; i < list.length; i++) {
@@ -381,7 +530,8 @@ export class Match {
       const shot: Projectile = { id: this.nextId++, tower: b.id, owner: b.owner, target: best.id, damage: lv.damage, ticksLeft: ticks, totalTicks: ticks };
       this.projectiles.push(shot);
       pending.set(best.id, (pending.get(best.id) ?? 0) + lv.damage);
-      b.cooldown = Math.round(lv.fireIntervalSec * bal.tickRate);
+      const vol = this.bbuffs.find(x => x.building === b.id && x.kind === 'volley');
+      b.cooldown = Math.round(lv.fireIntervalSec * bal.tickRate * (vol ? vol.mult : 1));
       this.events.push({ type: 'tower_fired', tower: b.id, projectile: shot.id, army: best.id, owner: b.owner });
     }
   }
@@ -488,6 +638,8 @@ export class Match {
       this.armies.map(a => [a.owner, a.from, a.to, a.units, a.state, r(a.dist)]),
       this.projectiles.map(s => [s.tower, s.target, s.ticksLeft]),
       this.pending.map(o => [o.from, o.to, o.launchTick]),
+      this.gseed && [this.gseed.site, this.gseed.phase, this.gseed.holder, this.gseed.holdTicks], this.buffs.length, this.bridge?.open, this.control,
+      this.zones.map(z => [z.kind, Math.round(z.x), z.endTick]), this.bbuffs.length, this.pbuffs.length, this.players.map(p => p.cd),
     ]);
   }
 }

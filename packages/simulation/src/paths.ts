@@ -1,13 +1,13 @@
 import type { MapDef, Vec } from './types';
 
 export interface Path { pts: Vec[]; cum: number[]; len: number }
-export interface Network { paths: Path[][]; roads: Vec[][] }
+export interface Network { paths: Path[][]; roads: Vec[][]; passR: number[] }
 
 const CLEAR = 10;        // min distance kept from an obstacle edge
 const RING = 26;         // detour ring distance from an obstacle edge
 const RING_PTS = 10;
 const B_CLEAR = 70;      // a road keeps this far from the centre of any building it does not connect
-export const B_PASS = 84;   // squads passing THROUGH a building's junction walk around it at this radius
+export const B_PASS = 84;   // squads passing a building's junction walk around it at this radius (less where neighbours are close)
 const ROAD_MAX = 430;    // longest road segment between two buildings
 
 export function segHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
@@ -102,12 +102,18 @@ function trim(p: Vec[], c: Vec, r: number, keepStart: boolean): Vec[] {
   return keepStart ? out : out.reverse();
 }
 
-function arc(c: Vec, r: number, from: Vec, to: Vec): Vec[] {
+/** Walk round a junction building; take the shorter way unless it brushes another building or obstacle. */
+function arc(c: Vec, r: number, from: Vec, to: Vec, avoid: { x: number; y: number; r: number }[]): Vec[] {
   const a0 = Math.atan2(from.y - c.y, from.x - c.x), a1 = Math.atan2(to.y - c.y, to.x - c.x);
   let d = a1 - a0; while (d > Math.PI) d -= Math.PI * 2; while (d <= -Math.PI) d += Math.PI * 2;
-  const steps = Math.max(1, Math.ceil(Math.abs(d) / 0.3)), out: Vec[] = [];
-  for (let i = 1; i < steps; i++) { const a = a0 + (d * i) / steps; out.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }); }
-  return out;
+  const build = (dd: number) => {
+    const steps = Math.max(1, Math.ceil(Math.abs(dd) / 0.3)), out: Vec[] = [];
+    for (let i = 1; i < steps; i++) { const a = a0 + (dd * i) / steps; out.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }); }
+    return out;
+  };
+  const short = build(d), long = build(d > 0 ? d - Math.PI * 2 : d + Math.PI * 2);
+  const hits = (pts: Vec[]) => pts.some(p => avoid.some(o => Math.hypot(o.x - p.x, o.y - p.y) < o.r));
+  return hits(short) && !hits(long) ? long : short;
 }
 
 /**
@@ -136,6 +142,10 @@ export function buildNetwork(map: MapDef, gatesClosed = false): Network {
   roads.forEach((r, k) => { adj[r.i].push({ to: r.j, r: k }); adj[r.j].push({ to: r.i, r: k }); });
   const edge = (a: number, b: number) => { const r = roads[adj[a].find(e => e.to === b)!.r]; return r.i === a ? r.pts : [...r.pts].reverse(); };
 
+  // ring radius per junction: as wide as B_PASS, but never closer than B_CLEAR to a neighbour or an obstacle's margin
+  const passR = map.buildings.map(c => Math.max(60, Math.min(B_PASS,
+    ...map.buildings.filter(o => o !== c).map(o => Math.hypot(o.x - c.x, o.y - c.y) - B_CLEAR),
+    ...obs.map(o => Math.hypot(o.x - c.x, o.y - c.y) - o.r - CLEAR - 2))));
   const paths: Path[][] = [];
   for (let s = 0; s < n; s++) {
     const dist = new Array(n).fill(Infinity), prev = new Array(n).fill(-1), done = new Array(n).fill(false);
@@ -156,16 +166,20 @@ export function buildNetwork(map: MapDef, gatesClosed = false): Network {
       let pts: Vec[] = [];
       for (let k = 0; k + 1 < seq.length; k++) {
         let seg = edge(seq[k], seq[k + 1]);
-        if (k > 0) seg = trim(seg, map.buildings[seq[k]], B_PASS, false);                 // leave the junction's ring
-        if (k + 2 < seq.length) seg = trim(seg, map.buildings[seq[k + 1]], B_PASS, true);  // reach the next junction's ring
-        if (k > 0) pts.push(...arc(map.buildings[seq[k]], B_PASS, pts[pts.length - 1], seg[0]));
+        if (k > 0) seg = trim(seg, map.buildings[seq[k]], passR[seq[k]], false);                 // leave the junction's ring
+        if (k + 2 < seq.length) seg = trim(seg, map.buildings[seq[k + 1]], passR[seq[k + 1]], true);  // reach the next junction's ring
+        if (k > 0) {
+          const c = map.buildings[seq[k]];
+          const avoid = [...map.buildings.filter(o => o !== c).map(o => ({ x: o.x, y: o.y, r: B_CLEAR })), ...obs.map(o => ({ x: o.x, y: o.y, r: o.r + CLEAR }))];
+          pts.push(...arc(c, passR[seq[k]], pts[pts.length - 1], seg[0], avoid));
+        }
         pts = pts.concat(k > 0 ? seg : seg);
       }
       row.push(makePath(pts));
     }
     paths.push(row);
   }
-  return { paths, roads: roads.map(r => r.pts) };
+  return { paths, roads: roads.map(r => r.pts), passR };
 }
 
 export function buildPaths(map: MapDef): Path[][] { return buildNetwork(map).paths; }

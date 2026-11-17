@@ -1,4 +1,4 @@
-import { B_PASS, Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
+import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 
@@ -136,7 +136,7 @@ export class Renderer {
     for (const r of routes) for (const [k, b] of map.buildings.entries()) if ([r[0], r[r.length - 1]].some(p => p.x === b.x && p.y === b.y)) degree[k]++;
     for (const [lw, col] of [[30, 'rgba(70,52,26,.30)'], [22, forest ? '#b39a66' : '#c9ad74'], [10, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
       c.strokeStyle = col; c.lineWidth = lw;
-      for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, B_PASS, B_PASS * TILT, 0, 0, 7); c.stroke(); }
+      for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, match.passR[k], match.passR[k] * TILT, 0, 0, 7); c.stroke(); }
     }
     // packed-earth yard under every building, so garrison numbers and fights read against calm ground
     for (const b of map.buildings) {
@@ -323,7 +323,7 @@ export class Renderer {
       const sheet = this.sheets[a.owner % 4], target = m.buildings[a.to];
       let ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
       let v = this.aview.get(a.id);
-      const path = m.paths[a.from][a.to].pts;
+      const path = m.pathOf(a).pts;
       let dx = a.x - a.px, dy = a.y - a.py;
       if (dx === 0 && dy === 0) { const n = path.length; dx = path[n - 1].x - path[n - 2].x; dy = path[n - 1].y - path[n - 2].y; }
       const foe = a.state === 'clashing' ? m.armies.find(x => x.id === a.foe) : undefined;
@@ -334,7 +334,7 @@ export class Renderer {
       v.ang += d * Math.min(1, dt * 9); v.seen = this.frameNo;
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
       // squads sharing a road keep to their own lane, so synchronized groups read as separate units (drawing only)
-      const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.paths[a.from][a.to].len - a.dist) / 70);
+      const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.pathOf(a).len - a.dist) / 70);
       ax -= sin * lane * squeezeAt(ax, ay); ay += cos * lane * squeezeAt(ax, ay);
       const hostile = !m.sameTeam(a.owner, target.owner);
       const toTarget = Math.hypot(target.x - ax, target.y - ay);
@@ -391,7 +391,7 @@ export class Renderer {
     // defenders step out to the gate while their building is under attack, facing the attackers
     for (const [bid, a] of this.fighters) {
       const b = m.buildings[bid], sheet = this.sheets[b.owner < 0 ? 4 : b.owner % 4];
-      const path = m.paths[a.from][a.to].pts, n2 = path.length;
+      const path = m.pathOf(a).pts, n2 = path.length;
       const ang = Math.atan2(path[n2 - 2].y - path[n2 - 1].y, path[n2 - 2].x - path[n2 - 1].x);
       const count = Math.min(this.low ? 1 : 3, Math.ceil(b.garrison / 6));
       for (let i = 0; i < count; i++) {

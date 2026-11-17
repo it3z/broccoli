@@ -12,6 +12,10 @@ export interface MapDef {
   obstacles: { kind: string; x: number; y: number; r: number }[];
 }
 
+export type HeroId = 'sprig' | 'armorleaf' | 'turnip';
+export interface AbilityDef { id: 'burst' | 'rush' | 'bulwark' | 'volley' | 'mud' | 'snare'; target: 'own' | 'none' | 'ownTower' | 'point'; cooldownSec: number; durationSec?: number; amount?: number; mult?: number; radius?: number; armSec?: number; range?: number }
+/** A hero ability's area on the map (Turnip). It is visible from the moment it is cast; it only bites once armed. */
+export interface Zone { id: number; owner: number; kind: 'mud' | 'snare'; x: number; y: number; r: number; armTick: number; endTick: number; mult: number }
 export interface AiProfile { thinkMs: number[]; margin: number; reserve: number; skip: number; builds: boolean; towers: boolean; topPicks: number; defends: boolean; maxFarmLevel: number; forgeAtFarms: number }
 export interface Balance {
   tickRate: number;
@@ -22,6 +26,11 @@ export interface Balance {
   matchTimeLimitSec: number;
   clash: { radius: number; rate: number };
   ai: Record<'easy' | 'normal' | 'hard', AiProfile>;
+  seed: { firstAtSec: number; intervalSec: number; warnSec: number; holdSec: number; buffSec: number; prodMult: number; radius: number };
+  control: { holdSec: number };
+  bridge: { openSec: number; closedSec: number; warnSec: number };
+  heroStartCooldownSec: number;
+  heroes: Record<HeroId, { role: string; abilities: AbilityDef[] }>;
   farm: { levels: { prod: number; cap: number; def: number }[]; upgradeCost: number[]; upgradeTimeSec: number[] };
   tower: { levels: { range: number; fireIntervalSec: number; damage: number; def: number }[]; upgradeCost: number[]; upgradeTimeSec: number[] };
   forge: { def: number; attackBonus: number; defenseBonus: number; maxStack: number };
@@ -45,7 +54,8 @@ export interface Army {
   id: number; owner: number; from: number; to: number;
   units: number; startUnits: number; state: ArmyState;
   dist: number; speed: number; createdTick: number; engage: number;
-  foe: number; wound: number; heldTicks: number;   // road-clash rule: opponent id (0 = none), fractional losses, time spent held
+  foe: number; wound: number; heldTicks: number;
+  route: 0 | 1;   // 0 = route with the drawbridge open, 1 = route avoiding it   // road-clash rule: opponent id (0 = none), fractional losses, time spent held
   x: number; y: number; px: number; py: number;
 }
 /** A tower shot in flight. Damage is applied exactly once, on the impact tick. */
@@ -57,13 +67,15 @@ export interface PendingOrder { id: number; owner: number; from: number; to: num
 export interface PlayerStats { produced: number; lost: number; killed: number; captures: number }
 export interface Player {
   id: number; team: number; isAI: boolean; alive: boolean; morale: number; lastActionTick: number; stats: PlayerStats;
+  hero: HeroId | null; cd: number[];   // tick at which each ability is ready again
 }
 export type Pct = 25 | 50 | 75 | 100;
 export type Command =
   | { type: 'send'; player: number; from: number[]; to: number; pct: Pct; sync?: boolean }
   | { type: 'upgrade'; player: number; building: number }
   | { type: 'convert'; player: number; building: number; to: BuildingType }
-  | { type: 'surrender'; player: number };
+  | { type: 'surrender'; player: number }
+  | { type: 'ability'; player: number; slot: number; building?: number; x?: number; y?: number };
 
 export type SimEvent =
   | { type: 'army_sent'; army: number; owner: number; from: number; to: number; units: number }
@@ -85,11 +97,24 @@ export type SimEvent =
   | { type: 'upgraded'; building: number }
   | { type: 'converted'; building: number }
   | { type: 'player_eliminated'; player: number }
-  | { type: 'match_ended'; winnerTeam: number | null };
+  | { type: 'match_ended'; winnerTeam: number | null }
+  | { type: 'seed_warning'; building: number; atTick: number }
+  | { type: 'seed_spawned'; building: number }
+  | { type: 'seed_claimed'; building: number; player: number; untilTick: number }
+  | { type: 'bridge_warning'; closing: boolean; atTick: number }
+  | { type: 'bridge_changed'; open: boolean }
+  | { type: 'ability_used'; player: number; ability: AbilityDef['id']; building?: number; x?: number; y?: number }
+  | { type: 'zone_armed'; zone: number; kind: Zone['kind'] }
 
 export interface MatchConfig {
   map: MapDef; balance: Balance; seed: number;
   players: { slot: number; team: number; isAI: boolean }[];
   /** Experimental rule: hostile armies that meet on the road stop and fight. Off by default. */
   roadClash?: boolean;
+  /** Golden Seed objective (announced, held, rewards production nearby). */
+  goldenSeed?: boolean;
+  /** 'conquest' = take everything; 'control' = King of the Bloom: hold the central building long enough. */
+  mode?: 'conquest' | 'control';
+  /** Hero per player index (null = none). */
+  heroes?: (HeroId | null)[];
 }
