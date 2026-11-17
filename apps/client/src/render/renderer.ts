@@ -346,7 +346,7 @@ export class Renderer {
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
       // squads sharing a road keep to their own lane, so synchronized groups read as separate units (drawing only)
       const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.pathOf(a).len - a.dist) / 70);
-      ax -= sin * lane * squeezeAt(ax, ay); ay += cos * lane * squeezeAt(ax, ay);
+      const sq = squeezeAt(ax, ay); ax -= sin * lane * sq; ay += cos * lane * sq;
       const hostile = !m.sameTeam(a.owner, target.owner);
       const toTarget = Math.hypot(target.x - ax, target.y - ay);
       // blend from marching block to a battle arc around the target as the group closes in
