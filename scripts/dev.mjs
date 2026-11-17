@@ -16,6 +16,7 @@ const port = Number(process.env.PORT || 5173);
 const ctx = await context({
   entryPoints: [join(root, 'apps/client/src/main.ts')],
   define: { __BUILD__: JSON.stringify(BUILD) },
+  loader: { '.png': 'dataurl' },
   bundle: true, sourcemap: 'inline', format: 'iife', target: ['es2020', 'safari15'],
   outfile: join(root, 'dist/app.js'), logLevel: 'info',
 });

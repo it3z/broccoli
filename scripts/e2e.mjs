@@ -302,6 +302,27 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await ctx.close();
 }
 
+// ---------- lessons ----------
+{
+  const { ctx, page, errors } = await open({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: UA });
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(p => ({ x: p.x, y: p.y, id: 1 })) });
+  await page.tap('#btnLearn');
+  const items = await page.$$eval('#learnList .lesson', els => els.length);
+  check('lessons & challenges screen lists 5 lessons and 3 challenges', items === 8, String(items));
+  await page.tap('#learnList .lesson:nth-of-type(1)');
+  await page.waitForTimeout(400);
+  const hint = await page.textContent('#hint');
+  const a = await at(page, 0), b = await at(page, 8);
+  await touch('touchStart', [a]); for (let i = 1; i <= 8; i++) { await touch('touchMove', [{ x: a.x + ((b.x - a.x) * i) / 8, y: a.y + ((b.y - a.y) * i) / 8 }]); await page.waitForTimeout(16); } await touch('touchEnd', []);
+  await page.waitForFunction(() => window.__broccoli.lessonResult === 'win', null, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1600);
+  const done = await page.evaluate(() => ({ r: window.__broccoli.lessonResult, panel: document.getElementById('result').classList.contains('on'), saved: localStorage.getItem('broccoli.done.l1') }));
+  check('lesson 1 (send & capture) completes from a real drag and is saved', done.r === 'win' && done.panel && done.saved === '1' && hint.length > 10, JSON.stringify(done));
+  check('O: no console errors (lessons)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
 // ---------- desktop, mouse ----------
 {
   const { ctx, page, errors } = await open({ viewport: { width: 1366, height: 768 } });

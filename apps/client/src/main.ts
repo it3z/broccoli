@@ -6,6 +6,7 @@ import { levels, setLevel, sfx, unlockAudio } from './audio/sfx';
 declare const __BUILD__: string;
 import { getLang, setLang, t, type Lang } from './ui/i18n';
 import { initOrientation } from './ui/orient';
+import { LESSONS, type Lesson } from './ui/lessons';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const store = {
@@ -81,6 +82,20 @@ function renderSetup(): void {
   seg($('segClash'), [{ v: '0', label: t('off') }, { v: '1', label: t('on') }], roadClash ? '1' : '0', v => { roadClash = v === '1'; renderSetup(); });
 }
 
+function renderLearn(): void {
+  const host = $('learnList'); host.innerHTML = '';
+  for (const kind of ['lesson', 'challenge'] as const) {
+    const h = document.createElement('h3'); h.textContent = t(kind === 'lesson' ? 'lessons' : 'challenges'); host.appendChild(h);
+    for (const L of LESSONS.filter(x => x.kind === kind)) {
+      const b = document.createElement('button'), lg = getLang() === 'en' ? 1 : 0, done = store.get('done.' + L.id, '') === '1';
+      b.className = 'lesson' + (done ? ' done' : '');
+      b.innerHTML = `<b>${L.icon}</b><span><strong>${L.title[lg]}</strong><small>${L.goal[lg]}</small></span><i>${done ? '✓' : ''}</i>`;
+      b.onclick = () => { sfx.tap(); startMatch(L); };
+      host.appendChild(b);
+    }
+  }
+}
+
 function renderSettings(): void {
   seg($('segLang'), [{ v: 'ar', label: 'العربية' }, { v: 'en', label: 'English' }], getLang(),
     v => { setLang(v as Lang); store.set('lang', v); renderSettings(); });
@@ -95,12 +110,14 @@ function renderSettings(): void {
     v => { flipHud = v === 'right'; store.set('side', v); renderSettings(); });
 }
 
-function startMatch(): void {
+let current: Lesson | null = null;
+function startMatch(lesson: Lesson | null = null): void {
+  current = lesson;
   session?.dispose();
   overlay('pause', false); overlay('result', false);
   show(null);
   setup.seed = (Date.now() % 2147483647) | 1;
-  session = new Session({ ...setup, lowFx, roadClash, flipHud, firstMatch: store.get('lesson', '0') !== '1' }, onEnd);
+  session = new Session({ ...setup, lowFx, roadClash, flipHud, firstMatch: store.get('lesson', '0') !== '1', ...(lesson ? lesson.opts : {}), lesson, seed: setup.seed }, onEnd);
   session.onFirstOrder = () => store.set('lesson', '1');
   (window as unknown as { __broccoli: Session }).__broccoli = session;
 }
@@ -121,6 +138,12 @@ function onEnd(m: Match): void {
     [t('turning'), turning(m)],
   ];
   $('resStats').innerHTML = rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+  if (current && session) {
+    const ok = session.lessonResult === 'win' || (!session.lessonResult && won);
+    if (ok) store.set('done.' + current.id, '1');
+    $('resTitle').textContent = `${current.icon} ${current.title[getLang() === 'en' ? 1 : 0]} — ${ok ? t('passed') : t('failed')}`;
+    $('resTitle').className = ok ? 'win' : 'loss'; $('resIcon').textContent = ok ? '✅' : '↩️';
+  }
   overlay('result', true);
 }
 
@@ -152,6 +175,7 @@ function init(): void {
   for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, e => e.preventDefault());
 
   $('btnSolo').onclick = () => { sfx.tap(); renderSetup(); show('setup'); };
+  $('btnLearn').onclick = () => { sfx.tap(); renderLearn(); show('learn'); };
   $('btnHow').onclick = () => { sfx.tap(); show('howto'); };
   $('btnSettings').onclick = () => { sfx.tap(); renderSettings(); show('settings'); };
   document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => (b.onclick = () => {
@@ -160,18 +184,18 @@ function init(): void {
     show('menu');
   }));
   $('btnPauseHow').onclick = () => { sfx.tap(); howFromPause = true; $('howto').classList.add('on'); };
-  $('btnStart').onclick = startMatch;
+  $('btnStart').onclick = () => startMatch();
 
   $('btnPause').onclick = () => { if (session && session.match.phase === 'playing') { session.paused = true; overlay('pause', true); } };
   $('btnResume').onclick = () => { if (session) session.paused = false; overlay('pause', false); };
-  $('btnRestart').onclick = startMatch;
+  $('btnRestart').onclick = () => startMatch(current);
   $('btnSurrender').onclick = () => {
     if (!session) return;
     session.match.enqueue({ type: 'surrender', player: 0 });
     session.paused = false; overlay('pause', false);
   };
   $('btnQuit').onclick = toMenu;
-  $('btnAgain').onclick = startMatch;
+  $('btnAgain').onclick = () => startMatch(current);
   $('btnResMenu').onclick = toMenu;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && session && session.match.phase === 'playing' && !session.paused) { session.paused = true; overlay('pause', true); }

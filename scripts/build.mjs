@@ -16,6 +16,7 @@ mkdirSync(out, { recursive: true });
 await build({
   entryPoints: [join(root, 'apps/client/src/main.ts')],
   define: { __BUILD__: JSON.stringify(BUILD) },
+  loader: { '.png': 'dataurl' },
   bundle: true, minify: true, format: 'iife', target: ['es2020', 'safari15'],
   outfile: join(out, 'app.js'), logLevel: 'info',
 });

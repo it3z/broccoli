@@ -45,6 +45,7 @@ const S: Record<string, [string, string]> = {
   rotate: ['أدر هاتفك إلى الوضع الأفقي', 'Rotate your phone to landscape'],
   all: ['تحديد الكل', 'Select all'],
   sync: ['معاً', 'Sync'],
+  learn: ['الدروس والتحديات', 'Lessons & Challenges'], lessons: ['دروس', 'Lessons'], challenges: ['تحديات', 'Challenges'], passed: ['نجحت', 'passed'], failed: ['لم تكتمل', 'not done'],
   mode: ['النمط', 'Mode'], conquest: ['غزو', 'Conquest'], control: ['ملك الزهرة', 'King of the Bloom'],
   seedOpt: ['البذرة الذهبية', 'Golden Seed'], hero: ['البطل', 'Hero'], none: ['بدون', 'None'],
   sprig: ['سبريغ · تعزيز', 'Sprig · Boost'], armorleaf: ['آرمرليف · دفاع', 'Armorleaf · Defence'], turnip: ['ترنب · تحكم', 'Turnip · Control'],

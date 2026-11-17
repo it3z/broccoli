@@ -1,6 +1,7 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
+import { loadTextures, texture } from './textures';
 
 export interface DragState { sources: number[]; target: number | null; wx: number; wy: number }
 export interface BoxState { x0: number; y0: number; x1: number; y1: number }
@@ -69,6 +70,7 @@ export class Renderer {
     this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, prevOwner: -1, aim: 0, tension: 0, hits: 0, hitClock: 0, hitColor: '#fff' });
     clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
+    loadTextures(() => this.paintBackground(match));
   }
 
   private world(c: Ctx): void {
@@ -100,9 +102,11 @@ export class Renderer {
     c.fillStyle = forest ? '#5a4a30' : '#6e5636'; c.beginPath(); c.roundRect(px0, py0 + drop, pw, ph, rad); c.fill();
     c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
     c.fillStyle = forest ? '#8a7350' : '#a98a5c'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
+    c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); texture(c, 'rock', 0.6, 0.7);
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
     top.addColorStop(0, forest ? '#78a062' : '#a2b46c'); top.addColorStop(1, forest ? '#628a52' : '#8ba05c');   // olive, lower saturation
     c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
+    texture(c, 'grass', 0.3, 0.9); texture(c, 'leaf', 0.18, 2.2);
     c.strokeStyle = 'rgba(250,255,215,.42)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
     for (let x = px0 + rad * 0.6; x < px0 + pw - rad * 0.6; x += rng.range(70, 130)) {
       drawRock(c, x, (py0 + ph + drop + rng.range(-2, 8)) / TILT, rng.range(9, 16));
@@ -144,6 +148,10 @@ export class Renderer {
       c.fillStyle = forest ? '#b39a66' : '#c9ad74'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7); c.fill();
       c.fillStyle = forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 64, 32, 0, 0, 7); c.fill();
     }
+    // packed-dirt grain over every yard
+    c.save(); c.beginPath();
+    for (const b of map.buildings) c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7);
+    c.clip(); c.beginPath(); c.rect(-2000, -2000, W + 4000, H + 4000); texture(c, 'dirt', 0.55, 0.8); c.restore();
     const roads: [Vec, Vec][] = [];
     for (const pts of routes) for (let k = 1; k < pts.length; k++) roads.push([pts[k - 1], pts[k]]);
     const roadDist = (x: number, y: number) => roads.reduce((best, [a, b]) => {

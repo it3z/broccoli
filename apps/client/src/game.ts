@@ -4,9 +4,10 @@ import { VIS } from './render/config';
 import { setIntensity, setScene, sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 import { toLocal, toScreenPx } from './ui/orient';
+import { track, type Lesson, type Progress } from './ui/lessons';
 
 export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean;
-  goldenSeed: boolean; mode: 'conquest' | 'control'; hero: HeroId | null }
+  goldenSeed: boolean; mode: 'conquest' | 'control'; hero: HeroId | null; lesson?: Lesson | null }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ICON: Record<BuildingType, string> = { farm: '🥦', tower: '🗼', forge: '☀️' };
 const ABI: Record<string, string> = { burst: '🌱', rush: '💨', bulwark: '🛡️', volley: '🏹', mud: '🟤', snare: '🌿' };
@@ -26,6 +27,8 @@ export class Session {
   onFirstOrder: (() => void) | null = null;
   /** Hero ability waiting for a target tap (slot index), or null. */
   aiming: number | null = null;
+  lessonResult: 'win' | 'fail' | null = null;
+  private progress: Progress = { reinforced: false, upgraded: false, syncSent: false, captures: 0, seed: false, upgradesTried: 0 };
   /** Test/dev hooks: let an AI play the human seat, and run several simulation steps per frame. */
   autopilot: AIController | null = null;
   speed = 1;
@@ -52,6 +55,7 @@ export class Session {
     this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash, goldenSeed: opts.goldenSeed, mode: opts.mode, heroes });
     for (let i = 1; i < players.length; i++) this.ais.push(new AIController(i, opts.difficulty, opts.seed));
     this.renderer = new Renderer(this.canvas, $('stage'));
+    opts.lesson?.setup?.(this.match);
     this.bind();
     this.buildHud();
     this.renderer.resize(this.match);
@@ -123,6 +127,11 @@ export class Session {
   private react(): void {
     const m = this.match, bx = (id: number) => this.pan(m.buildings[id].x);
     this.renderer.onEvents(m, m.events);
+    if (this.opts.lesson && !this.lessonResult) {
+      track(m, m.events, this.progress);
+      const r = this.opts.lesson.check(m, this.progress);
+      if (r) { this.lessonResult = r; if (m.phase === 'playing') { m.phase = 'ended'; m.winnerTeam = r === 'win' ? m.players[this.human].team : null; } }
+    }
     for (const e of m.events) {
       if (e.type === 'building_captured') { if (e.from === this.human) sfx.lost(bx(e.building)); else sfx.capture(bx(e.building)); }
       else if (e.type === 'tower_fired') sfx.shot(bx(e.tower));
@@ -179,7 +188,7 @@ export class Session {
     if (list.every(id => m.sendCount(m.buildings[id], this.pct) === 0)) { this.toast(t('msgEmpty')); sfx.deny(); return; }
     m.enqueue({ type: 'send', player: this.human, from: list, to, pct: this.pct, sync: this.sync && list.length > 1 });
     sfx.send();
-    if (!this.ordered) { this.ordered = true; $('hint').classList.add('hidden'); this.onFirstOrder?.(); }   // the drag lesson leaves after the first successful order, for good
+    if (!this.ordered) { this.ordered = true; if (!this.opts.lesson) $('hint').classList.add('hidden'); this.onFirstOrder?.(); }   // the drag lesson leaves after the first successful order, for good
   }
 
   private cancelPointer(): void {
@@ -321,7 +330,8 @@ export class Session {
       acts.appendChild(b);
     }
     $('morale').innerHTML = '<span>🍃</span>'.repeat(BALANCE.morale.max);
-    $('hint').textContent = t('hint'); $('hint').classList.toggle('hidden', !this.opts.firstMatch);   // drag lesson only until the first order ever
+    const L = this.opts.lesson, lang = document.documentElement.lang === 'en' ? 1 : 0;
+    $('hint').textContent = L ? `${L.icon} ${L.goal[lang]}` : t('hint'); $('hint').classList.toggle('hidden', !this.opts.firstMatch && !L);   // drag lesson only until the first order ever
     $('toast').classList.add('hidden');
     $('debug').classList.toggle('hidden', !this.debug);
   }
