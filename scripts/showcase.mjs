@@ -71,7 +71,9 @@ if (CLIP) {
 if (PERF) {
   // same crowded scenario for every build: 4-way Deep Forest, AI on every seat, then every owned building stocked to 160
   await page.tap('#btnPause'); await page.tap('#btnQuit');
-  await page.tap('#btnSolo'); await page.tap('#maps .map:nth-child(2)'); await page.tap('#segOpp .segb:nth-child(3)'); await page.tap('#segDiff .segb:nth-child(3)'); await page.tap('#btnStart');
+  await page.tap('#btnSolo'); await page.tap('#maps .map:nth-child(2)'); await page.tap('#segOpp .segb:nth-child(3)'); await page.tap('#segDiff .segb:nth-child(3)');
+  for (const sel of ['#segHero .segb:nth-child(1)', '#segSeed .segb:nth-child(2)']) if (await page.$(sel)) await page.tap(sel);   // same rules as older builds
+  await page.tap('#btnStart');
   await page.evaluate(() => window.__broccoli.autoplay('hard', 1));
   await page.waitForTimeout(20000);
   const res = {};
@@ -84,7 +86,7 @@ if (PERF) {
     const samples = await page.evaluate(() => new Promise(r => { const xs = []; let last = performance.now(); const f = t => { xs.push(t - last); last = t; xs.length < 240 ? requestAnimationFrame(f) : r(xs); }; requestAnimationFrame(f); }));
     samples.sort((x, y) => x - y);
     const info = await page.evaluate(() => { const s = window.__broccoli; return { sprites: s.renderer.drawnSoldiers, armies: s.match.armies.length, units: s.match.players.reduce((n, p) => n + s.match.totalUnits(p.id), 0) }; });
-    res[low ? 'reduced' : 'full'] = { avgMs: +(samples.reduce((x, y) => x + y, 0) / samples.length).toFixed(2), p95Ms: +samples[Math.floor(samples.length * 0.95)].toFixed(2), drawMs: +drawMs.toFixed(2), ...info };
+    res[low ? 'reduced' : 'full'] = { avgMs: +(samples.reduce((x, y) => x + y, 0) / samples.length).toFixed(2), p95Ms: +samples[Math.floor(samples.length * 0.95)].toFixed(2), drawMs: +drawMs.toFixed(2), longFrames: samples.filter(x => x > 25).length, ...info };
   }
   console.log(JSON.stringify({ build: html, ...res, errors }));
 }

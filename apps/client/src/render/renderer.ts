@@ -1,6 +1,7 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
+import { loadTextures, texture } from './textures';
 
 export interface DragState { sources: number[]; target: number | null; wx: number; wy: number }
 export interface BoxState { x0: number; y0: number; x1: number; y1: number }
@@ -39,6 +40,7 @@ export class Renderer {
   private low = false;
   scale = 1; ox = 0; oy = 0; dpr = 1;
   private cacheScale = 1;
+  private gateDown = 1;
   frameMs = 0;          // smoothed frame time, for the perf readout, tests and automatic quality
   drawnSoldiers = 0;    // how many soldier sprites the last frame drew
 
@@ -56,7 +58,8 @@ export class Renderer {
     if (w === 0 || h === 0) return;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(w * this.dpr); this.canvas.height = Math.round(h * this.dpr);
-    const s = this.stage.getBoundingClientRect(), c = this.canvas.getBoundingClientRect();
+    // layout boxes (unaffected by the automatic landscape rotation); the canvas fills the app from its top-left corner
+    const st = this.stage, s = { left: st.offsetLeft, top: st.offsetTop, width: st.offsetWidth, height: st.offsetHeight }, c = { left: 0, top: 0 };
     // frame the buildings (plus room for roofs, flags and labels), not the whole empty map
     const bs = match.map.buildings, pad = VIS.fitPad;
     const x0 = Math.min(...bs.map(b => b.x)) - pad.side, x1 = Math.max(...bs.map(b => b.x)) + pad.side;
@@ -67,6 +70,7 @@ export class Renderer {
     this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, prevOwner: -1, aim: 0, tension: 0, hits: 0, hitClock: 0, hitColor: '#fff' });
     clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
+    loadTextures(() => this.paintBackground(match));
   }
 
   private world(c: Ctx): void {
@@ -98,9 +102,11 @@ export class Renderer {
     c.fillStyle = forest ? '#5a4a30' : '#6e5636'; c.beginPath(); c.roundRect(px0, py0 + drop, pw, ph, rad); c.fill();
     c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
     c.fillStyle = forest ? '#8a7350' : '#a98a5c'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
+    c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); texture(c, 'rock', 0.6, 0.7);
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
-    top.addColorStop(0, forest ? '#5f9a57' : '#96bd6c'); top.addColorStop(1, forest ? '#497f49' : '#80ad60');
+    top.addColorStop(0, forest ? '#78a062' : '#a2b46c'); top.addColorStop(1, forest ? '#628a52' : '#8ba05c');   // olive, lower saturation
     c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
+    texture(c, 'grass', 0.3, 0.9); texture(c, 'leaf', 0.18, 2.2);
     c.strokeStyle = 'rgba(250,255,215,.42)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
     for (let x = px0 + rad * 0.6; x < px0 + pw - rad * 0.6; x += rng.range(70, 130)) {
       drawRock(c, x, (py0 + ph + drop + rng.range(-2, 8)) / TILT, rng.range(9, 16));
@@ -124,20 +130,28 @@ export class Renderer {
     }
 
     // packed-dirt roads drawn exactly along the routes the armies walk
-    const routes: Vec[][] = [];
-    for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
-      const p = match.paths[i][j]; if (p.len <= VIS.roadMaxLen) routes.push(p.pts);
-    }
+    const routes: Vec[][] = match.roads;     // the same polylines every army route is built from
     c.lineCap = 'round'; c.lineJoin = 'round';
     for (const [lw, col] of [[32, 'rgba(70,52,26,.30)'], [24, forest ? '#b39a66' : '#c9ad74'], [12, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
       c.strokeStyle = col; c.lineWidth = lw;
       for (const pts of routes) { c.beginPath(); pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke(); }
+    }
+    // ring road around every junction: squads passing a building walk this loop (radius B_PASS), never through the yard
+    const degree = map.buildings.map(() => 0);
+    for (const r of routes) for (const [k, b] of map.buildings.entries()) if ([r[0], r[r.length - 1]].some(p => p.x === b.x && p.y === b.y)) degree[k]++;
+    for (const [lw, col] of [[30, 'rgba(70,52,26,.30)'], [22, forest ? '#b39a66' : '#c9ad74'], [10, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
+      c.strokeStyle = col; c.lineWidth = lw;
+      for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, match.passR[k], match.passR[k] * TILT, 0, 0, 7); c.stroke(); }
     }
     // packed-earth yard under every building, so garrison numbers and fights read against calm ground
     for (const b of map.buildings) {
       c.fillStyle = forest ? '#b39a66' : '#c9ad74'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7); c.fill();
       c.fillStyle = forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 64, 32, 0, 0, 7); c.fill();
     }
+    // packed-dirt grain over every yard
+    c.save(); c.beginPath();
+    for (const b of map.buildings) c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7);
+    c.clip(); c.beginPath(); c.rect(-2000, -2000, W + 4000, H + 4000); texture(c, 'dirt', 0.55, 0.8); c.restore();
     const roads: [Vec, Vec][] = [];
     for (const pts of routes) for (let k = 1; k < pts.length; k++) roads.push([pts[k - 1], pts[k]]);
     const roadDist = (x: number, y: number) => roads.reduce((best, [a, b]) => {
@@ -172,7 +186,8 @@ export class Renderer {
       c.fillStyle = '#e8a52a'; c.beginPath(); c.arc(x, y * TILT, 1.8, 0, 7); c.fill();
     }
     for (const o of map.obstacles) if (o.kind === 'pond') drawPond(c, o.x, o.y, o.r);
-    for (const o of map.obstacles) if (o.kind !== 'pond') drawRock(c, o.x, o.y, o.r);
+    for (const o of map.obstacles) if (o.kind === 'rock') drawRock(c, o.x, o.y, o.r);
+    this.paintRiver(c, match);
     // a few trees stand on the plateau itself; they are drawn live so they can fade when a squad walks behind them
     this.innerTrees = [];
     for (let i = 0; i < 400 && this.innerTrees.length < 9; i++) {
@@ -304,6 +319,7 @@ export class Renderer {
     }
     c.globalAlpha = 1;
     this.rings = this.rings.filter(r => r.t < 1);
+    this.drawObjectives(c, f, dt);
     if (f.drag) this.drawOrderPaths(c, f);
 
     // depth-sorted scene: buildings, soldiers, cheering captors
@@ -313,11 +329,12 @@ export class Renderer {
     const badges: { x: number; y: number; a: Army }[] = [];
     let soldiers = 0;
     const atTarget = new Map<number, number>();
+    const squeezeAt = (x: number, y: number) => { let g = 1e9; for (const q of m.buildings) g = Math.min(g, Math.hypot(q.x - x, q.y - y) - VIS.buildingBody); return Math.max(0.15, Math.min(1, (g - 14) / 46)); };
     for (const a of m.armies) {
       const sheet = this.sheets[a.owner % 4], target = m.buildings[a.to];
       let ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
       let v = this.aview.get(a.id);
-      const path = m.paths[a.from][a.to].pts;
+      const path = m.pathOf(a).pts;
       let dx = a.x - a.px, dy = a.y - a.py;
       if (dx === 0 && dy === 0) { const n = path.length; dx = path[n - 1].x - path[n - 2].x; dy = path[n - 1].y - path[n - 2].y; }
       const foe = a.state === 'clashing' ? m.armies.find(x => x.id === a.foe) : undefined;
@@ -328,8 +345,8 @@ export class Renderer {
       v.ang += d * Math.min(1, dt * 9); v.seen = this.frameNo;
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
       // squads sharing a road keep to their own lane, so synchronized groups read as separate units (drawing only)
-      const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.paths[a.from][a.to].len - a.dist) / 70);
-      ax -= sin * lane; ay += cos * lane;
+      const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.pathOf(a).len - a.dist) / 70);
+      const sq = squeezeAt(ax, ay); ax -= sin * lane * sq; ay += cos * lane * sq;
       const hostile = !m.sameTeam(a.owner, target.owner);
       const toTarget = Math.hypot(target.x - ax, target.y - ay);
       // blend from marching block to a battle arc around the target as the group closes in
@@ -337,8 +354,10 @@ export class Renderer {
       const n = this.icons(a.units);
       // two or three ranks; the block narrows and stretches where the road squeezes past a pond or rock
       let gap = 1e9; for (const o of m.map.obstacles) gap = Math.min(gap, Math.hypot(o.x - ax, o.y - ay) - o.r);
-      const squeeze = Math.max(0.55, Math.min(1, (gap - 22) / 70));
-      const per = Math.max(2, Math.round(Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3))) * (squeeze < 0.8 ? 0.6 : 1)));
+      // passing a building on the way: narrow to a column before the yard, widen again after it
+      for (const q of m.buildings) if (q.id !== a.from && q.id !== a.to) gap = Math.min(gap, Math.hypot(q.x - ax, q.y - ay) - VIS.buildingBody);
+      const squeeze = Math.max(0.4, Math.min(1, (gap - 14) / 46));
+      const per = squeeze < 0.75 ? 2 : Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3)));
       // soldiers file out of the door rank by rank instead of appearing as a block
       const age = (m.tick + f.alpha - a.createdTick) / m.bal.tickRate, home = m.buildings[a.from];
       if (!this.fighters.has(a.to) && a.state === 'fighting') this.fighters.set(a.to, a);
@@ -383,7 +402,7 @@ export class Renderer {
     // defenders step out to the gate while their building is under attack, facing the attackers
     for (const [bid, a] of this.fighters) {
       const b = m.buildings[bid], sheet = this.sheets[b.owner < 0 ? 4 : b.owner % 4];
-      const path = m.paths[a.from][a.to].pts, n2 = path.length;
+      const path = m.pathOf(a).pts, n2 = path.length;
       const ang = Math.atan2(path[n2 - 2].y - path[n2 - 1].y, path[n2 - 2].x - path[n2 - 1].x);
       const count = Math.min(this.low ? 1 : 3, Math.ceil(b.garrison / 6));
       for (let i = 0; i < count; i++) {
@@ -431,7 +450,10 @@ export class Renderer {
         c.globalAlpha = it.hop; c.drawImage(it.frame!, it.x - FALL.w * ss * 0.45, py - FALL.h * ss * 0.7, FALL.w * ss * 0.9, FALL.h * ss * 0.9); c.globalAlpha = 1;
       } else {
         const py = it.y * TILT;
-        if (!this.low) shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.26);
+        if (!this.low) {   // team-coloured footing under every soldier: ownership reads even where the sprite is small
+          shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.3);
+          c.fillStyle = colorOf(it.ref); c.globalAlpha = 0.55; c.beginPath(); c.ellipse(it.x, py + 1, 7.5 * ss, 3 * ss, 0, 0, 7); c.fill(); c.globalAlpha = 1;
+        }
         if (it.flip) { c.save(); c.translate(it.x, 0); c.scale(-1, 1); c.drawImage(it.frame!, -sw / 2, py - sh + 4 * ss - it.hop, sw, sh); c.restore(); }
         else c.drawImage(it.frame!, it.x - sw / 2, py - sh + 4 * ss - it.hop, sw, sh);
       }
@@ -475,6 +497,7 @@ export class Renderer {
     c.globalAlpha = 1;
 
     this.drawLabels(c, f, badges, threatened, dt);
+    this.drawObjectiveLabels(c, f);
     if (f.drag) this.drawOrderLabels(c, f);
 
     if (f.box) {
@@ -516,6 +539,7 @@ export class Renderer {
 
   private pill(c: Ctx, x: number, y: number, text: string, fs: number, fill: string, stroke: string, owner: number | null, ink = '#fff'): void {
     const tw = c.measureText(text).width, pw = tw + fs * (owner === null ? 0.9 : 1.5), ph = fs * 1.25, x0 = x - pw / 2;
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.roundRect(x0 - 2, y - ph / 2 + 1, pw + 4, ph + 3, ph / 2 + 2); c.fill();   // dark halo keeps numbers legible over bright effects
     c.fillStyle = fill; c.strokeStyle = stroke; c.lineWidth = Math.max(3, fs * 0.11);
     c.beginPath(); c.roundRect(x0, y - ph / 2, pw, ph, ph / 2); c.fill(); c.stroke();
     if (owner !== null) emblemShape(c, x0 + fs * 0.55, y, fs * 0.26, owner, owner < 0 ? '#cfc8b4' : '#fff');
@@ -584,6 +608,116 @@ export class Renderer {
     this.pops = this.pops.filter(p => p.t < 0.9);
   }
 
+  /** River band with sandy banks; a timber bridge over every gap that has no drawbridge. */
+  private paintRiver(c: Ctx, m: Match): void {
+    const riv = m.map.obstacles.filter(o => o.kind === 'river').sort((a, b) => a.y - b.y || a.x - b.x);
+    if (!riv.length) return;
+    const r = riv[0].r, line = () => { c.beginPath(); riv.forEach((o, i) => (i ? c.lineTo(o.x, o.y * TILT) : c.moveTo(o.x, o.y * TILT))); };
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const [w, col] of [[r * 2 + 34, 'rgba(70,58,30,.3)'], [r * 2 + 22, '#d9c992'], [r * 2 + 8, '#c2b077'], [r * 2 - 6, '#4ea5cf'], [r * 0.9, '#3a8fc0']] as const) { c.strokeStyle = col; c.lineWidth = w; line(); c.stroke(); }
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.setLineDash([18, 26]); line(); c.stroke(); c.setLineDash([]);
+    const gates = m.map.obstacles.filter(o => o.kind === 'gate');
+    for (let i = 1; i < riv.length; i++) {
+      const a = riv[i - 1], b = riv[i];
+      if (Math.hypot(b.x - a.x, b.y - a.y) < r * 2.6) continue;
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      if (gates.some(g => Math.hypot(g.x - mx, g.y - my) < r)) continue;
+      this.planks(c, mx, my, r * 2.6, 1);
+    }
+  }
+  /** Timber deck across the river at (x, y); `down` 0..1 lowers it (drawbridges are raised when 0). */
+  private planks(c: Ctx, x: number, y: number, len: number, down: number): void {
+    const py = y * TILT, w = 46, half = len / 2;
+    c.save(); c.translate(x, py);
+    c.fillStyle = 'rgba(20,30,40,.3)'; c.fillRect(-half, 6, len, w * TILT * 0.9);
+    const lift = (1 - down) * 26;
+    c.fillStyle = '#84603a'; c.fillRect(-half, -w * TILT / 2 + 4 - lift, len, w * TILT);
+    c.fillStyle = '#b98a56'; c.fillRect(-half, -w * TILT / 2 - lift, len, w * TILT);
+    c.strokeStyle = 'rgba(90,60,30,.6)'; c.lineWidth = 1.2;
+    for (let k = -half + 8; k < half; k += 10) { c.beginPath(); c.moveTo(k, -w * TILT / 2 - lift); c.lineTo(k, w * TILT / 2 - lift); c.stroke(); }
+    c.fillStyle = '#5a3d22'; for (const sx of [-half - 3, half - 5]) for (const sy of [-w * TILT / 2 - 6, w * TILT / 2 - 6]) c.fillRect(sx, sy - lift * 0.4, 8, 14 + lift * 0.4);
+    c.restore();
+  }
+
+  /** Map objectives drawn on the ground: drawbridge, Golden Seed site, seed rewards, hero zones and shields. */
+  private drawObjectives(c: Ctx, f: Frame, dt: number): void {
+    const m = f.match, t = f.time, R = m.bal.tickRate;
+    if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
+      this.gateDown += ((m.bridge.open ? 1 : 0) - this.gateDown) * Math.min(1, dt * 4);
+      this.planks(c, g.x, g.y, 46 * 2.6, this.gateDown);
+      if (!m.bridge.open || m.bridge.warned) {
+        const k = 0.5 + 0.5 * Math.sin(t * 8);
+        c.strokeStyle = m.bridge.open ? `rgba(255,180,58,${0.5 + 0.4 * k})` : 'rgba(228,59,75,.85)'; c.lineWidth = 5; c.setLineDash([10, 7]);
+        c.beginPath(); c.ellipse(g.x, g.y * TILT, 70, 70 * TILT, 0, 0, 7); c.stroke(); c.setLineDash([]);
+      }
+    }
+    for (const fb of m.buffs) for (const b of m.buildings) {
+      if (b.owner !== fb.player || b.type !== 'farm' || Math.hypot(b.x - fb.x, b.y - fb.y) > m.bal.seed.radius) continue;
+      const k = 0.5 + 0.5 * Math.sin(t * 5 + b.id);
+      c.strokeStyle = `rgba(255,214,90,${0.45 + 0.4 * k})`; c.lineWidth = 6; c.beginPath(); c.ellipse(b.x, b.y * TILT, 70 + k * 6, (70 + k * 6) * TILT * 0.6, 0, 0, 7); c.stroke();
+    }
+    const sd = m.gseed;
+    if (sd) {
+      const b = m.buildings[sd.site], k = 0.5 + 0.5 * Math.sin(t * 6);
+      c.strokeStyle = `rgba(255,214,90,${sd.phase === 'warn' ? 0.4 + 0.5 * k : 0.95})`; c.lineWidth = sd.phase === 'warn' ? 5 : 8; c.setLineDash(sd.phase === 'warn' ? [12, 9] : []);
+      c.beginPath(); c.ellipse(b.x, b.y * TILT, 92, 92 * TILT * 0.62, 0, 0, 7); c.stroke(); c.setLineDash([]);
+      if (sd.phase === 'active' && sd.holder >= 0) {
+        const p = sd.holdTicks / (m.bal.seed.holdSec * R);
+        c.strokeStyle = colorOf(sd.holder); c.lineWidth = 9;
+        c.beginPath(); c.ellipse(b.x, b.y * TILT, 92, 92 * TILT * 0.62, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); c.stroke();
+      }
+    }
+    for (const z of m.zones) {
+      const armed = m.tick >= z.armTick, k = 0.5 + 0.5 * Math.sin(t * 10), y = z.y * TILT;
+      if (z.kind === 'mud') {
+        c.fillStyle = armed ? 'rgba(110,78,40,.55)' : 'rgba(110,78,40,.22)'; c.beginPath(); c.ellipse(z.x, y, z.r, z.r * TILT, 0, 0, 7); c.fill();
+        if (armed) { c.fillStyle = 'rgba(70,48,22,.6)'; for (let i = 0; i < 7; i++) { const a = i * 0.9 + t * 0.3; c.beginPath(); c.ellipse(z.x + Math.cos(a) * z.r * 0.55, y + Math.sin(a) * z.r * 0.4, 7, 4, 0, 0, 7); c.fill(); } }
+      } else {
+        if (armed) {
+          c.strokeStyle = '#4f8a3a'; c.lineWidth = 4; c.lineCap = 'round';
+          for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, rx = z.x + Math.cos(a) * z.r * 0.7, ry = y + Math.sin(a) * z.r * 0.5; c.beginPath(); c.moveTo(rx, ry); c.quadraticCurveTo(rx + 6, ry - 18, rx - 2, ry - 26 - k * 4); c.stroke(); }
+        }
+      }
+      c.strokeStyle = z.kind === 'snare' && !armed ? `rgba(228,59,75,${0.5 + 0.5 * k})` : colorOf(z.owner); c.lineWidth = armed ? 3 : 5; c.setLineDash(armed ? [] : [9, 7]);
+      c.beginPath(); c.ellipse(z.x, y, z.r, z.r * TILT, 0, 0, 7); c.stroke(); c.setLineDash([]);
+    }
+    for (const fb of m.bbuffs) {
+      const b = m.buildings[fb.building], y = b.y * TILT;
+      if (fb.kind === 'bulwark') {
+        c.fillStyle = 'rgba(140,220,255,.16)'; c.strokeStyle = 'rgba(160,230,255,.85)'; c.lineWidth = 3;
+        c.beginPath(); c.ellipse(b.x, y - 30, 66, 74, 0, Math.PI, Math.PI * 2); c.lineTo(b.x + 66, y); c.ellipse(b.x, y, 66, 66 * TILT * 0.55, 0, 0, Math.PI); c.closePath(); c.fill(); c.stroke();
+      } else {
+        const k = 0.5 + 0.5 * Math.sin(t * 14);
+        c.fillStyle = `rgba(255,180,58,${0.25 + 0.25 * k})`; c.beginPath(); c.arc(b.x, y - buildingTop('tower', b.level) + 18, 22, 0, 7); c.fill();
+      }
+    }
+  }
+
+  /** Countdowns over objectives: drawbridge seconds, seed warning and hold time, crown on the bloom. */
+  private drawObjectiveLabels(c: Ctx, f: Frame): void {
+    const m = f.match, R = m.bal.tickRate, fs = Math.max(22, VIS.badgeMinPx / this.scale);
+    c.font = `800 ${fs}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
+      const s = Math.max(0, Math.ceil((m.bridge.nextTick - m.tick) / R));
+      this.pill(c, g.x, g.y * TILT - 58, `${m.bridge.open ? '🌉' : '⛔'} ${s}`, fs, m.bridge.open ? (m.bridge.warned ? '#d98a00' : 'rgba(16,38,26,.9)') : '#a3222f', '#fff', null);
+    }
+    const sd = m.gseed;
+    if (sd) {
+      const b = m.buildings[sd.site], y = b.y * TILT - buildingTop(b.type, b.level) - 46;
+      const txt = sd.phase === 'warn' ? `🌰 ${Math.ceil((sd.atTick - m.tick) / R)}` : sd.holder >= 0 ? `🌰 ${Math.ceil((m.bal.seed.holdSec * R - sd.holdTicks) / R)}` : '🌰';
+      this.pill(c, b.x, y, txt, fs * 1.1, '#ffd95a', '#7a5a10', null, '#3b2a05');
+    }
+    if (m.mode === 'control') {
+      const b = m.buildings[m.sites[0]];
+      this.pill(c, b.x, b.y * TILT - buildingTop(b.type, b.level) - (sd && sd.site === b.id ? 90 : 46), '👑', fs * 1.1, '#ffd95a', '#7a5a10', null, '#3b2a05');
+    }
+    for (const fb of m.pbuffs) for (const a of m.armies) if (a.owner === fb.player && a.state === 'moving') {
+      c.strokeStyle = 'rgba(255,214,90,.8)'; c.lineWidth = 3; c.lineCap = 'round';
+      const ang = this.aview.get(a.id)?.ang ?? 0;
+      for (let i = -1; i <= 1; i++) { const bx = a.x - Math.cos(ang) * 30 - Math.sin(ang) * i * 10, by = (a.y - Math.sin(ang) * 30 + Math.cos(ang) * i * 10) * TILT - 12; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx - Math.cos(ang) * 22, by - Math.sin(ang) * 22 * TILT); c.stroke(); }
+    }
+  }
+
   private drawOrderPaths(c: Ctx, f: Frame): void {
     const m = f.match, d = f.drag!, t = f.time;
     const target = d.target !== null ? m.buildings[d.target] : null;
@@ -591,7 +725,8 @@ export class Renderer {
     for (const id of d.sources) {
       if (id === d.target) continue;
       const b = m.buildings[id];
-      const pts = target ? m.paths[id][target.id].pts : [{ x: b.x, y: b.y }, { x: d.wx, y: d.wy }];
+      const route = target ? m.routeFor(id, target.id, f.human).route : 0;
+      const pts = target ? (route === 1 && m.closedPaths ? m.closedPaths : m.paths)[id][target.id].pts : [{ x: b.x, y: b.y }, { x: d.wx, y: d.wy }];
       for (const [lw, cl] of [[17, 'rgba(10,30,15,.5)'], [10, col]] as const) {
         c.strokeStyle = cl; c.lineWidth = lw; c.lineCap = 'round'; c.lineJoin = 'round';
         c.setLineDash(lw === 10 ? [20, 15] : []); c.lineDashOffset = -t * 80;

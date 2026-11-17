@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AIController, BALANCE, MAPS, Match, segHitsCircle, type MapDef, type SimEvent } from '../packages/simulation/src/index';
+import { AIController, BALANCE, MAPS, Match, pointAt, segHitsCircle, type MapDef, type SimEvent } from '../packages/simulation/src/index';
 
 type B = MapDef['buildings'][number];
 const mk = (buildings: B[], obstacles: MapDef['obstacles'] = []): MapDef => ({
@@ -18,9 +18,9 @@ const sane = (m: Match) => {
   for (const a of m.armies) {
     assert.ok(Number.isInteger(a.units) && a.units > 0, `bad army units ${a.units}`);
     assert.ok(Number.isFinite(a.x) && Number.isFinite(a.y));
-    assert.ok(Math.hypot(a.x - a.px, a.y - a.py) <= a.speed / m.bal.tickRate + 1e-6, 'army teleported');
+    assert.ok(Math.hypot(a.x - a.px, a.y - a.py) <= a.speed * 1.46 / m.bal.tickRate + 1e-6, 'army teleported');   // 1.45 = Green Rush
     if (a.state === 'clashing') assert.ok(m.roadClash && a.foe > 0);
-    const limit = (m.paths[a.from][a.to].len / a.speed + a.startUnits / m.bal.battleRate + 2) * m.bal.tickRate + a.heldTicks;
+    const limit = (m.pathOf(a).len / a.speed + a.startUnits / m.bal.battleRate + 2) * m.bal.tickRate + a.heldTicks;
     assert.ok(m.tick - a.createdTick <= limit, `army ${a.id} stuck in state ${a.state}`);
   }
   for (const p of m.players) assert.ok(p.morale >= 0 && p.morale <= BALANCE.morale.max);
@@ -35,7 +35,7 @@ test('maps: 2 owned + >=3 neutral buildings, routes avoid obstacles', () => {
     assert.ok(m.buildings.filter(b => b.owner === -1).length >= 3);
     for (const row of m.paths) for (const p of row) {
       assert.ok(Number.isFinite(p.len));
-      for (let i = 1; i < p.pts.length; i++) for (const o of map.obstacles) {
+      for (let i = 1; i < p.pts.length; i++) for (const o of map.obstacles.filter(o => o.kind !== 'gate')) {
         assert.ok(!segHitsCircle(p.pts[i - 1], p.pts[i], o, o.r), `${map.id}: route crosses ${o.kind}`);
       }
     }
@@ -479,4 +479,192 @@ test('road-clash matches still resolve cleanly with AI on both sides', () => {
     while (m.phase === 'playing') { ais.forEach(a => a.update(m)); m.step(); sane(m); }
     assert.ok(m.history.length > 10 && m.history.every(h => h.length === 2));
   }
+});
+
+// ---------------- roads ----------------
+test('roads: every route follows the drawn roads and walks round, never through, buildings it passes', () => {
+  for (const map of MAPS) {
+    const m = match(map);
+    const onRoad = (x: number, y: number) => m.roads.some(r => r.some((p, i) => i > 0 && segHitsCircle(r[i - 1], p, { x, y }, 3)))
+      || m.buildings.some((b, k) => Math.abs(Math.hypot(b.x - x, b.y - y) - m.passR[k]) < 3 || Math.hypot(b.x - x, b.y - y) < 3);
+    for (let i = 0; i < m.buildings.length; i++) for (let j = 0; j < m.buildings.length; j++) {
+      if (i === j) continue;
+      const p = m.paths[i][j];
+      for (const q of p.pts) assert.ok(onRoad(q.x, q.y), `${map.id} ${i}->${j}: waypoint off road`);
+      for (let k = 0; k < m.buildings.length; k++) if (k !== i && k !== j) for (let s = 1; s < p.pts.length; s++)
+        assert.ok(!segHitsCircle(p.pts[s - 1], p.pts[s], m.buildings[k], 69), `${map.id} ${i}->${j} cuts through building ${k}`);
+    }
+  }
+});
+
+// ---------------- golden seed ----------------
+const seedMatch = (seed = 3) => {
+  const m = new Match({ map: MAPS[0], balance: BALANCE, seed, players: two, goldenSeed: true });
+  m.players.forEach(p => (p.lastActionTick = 1e9));
+  return m;
+};
+const R = BALANCE.tickRate;
+test('Golden Seed: warning first, then the seed, then a hold that pays out a timed production boost nearby', () => {
+  const m = seedMatch();
+  let warn = -1, spawn = -1, claim = -1, site = -1;
+  run(m, BALANCE.seed.firstAtSec * R + 5, ev => { for (const e of ev) { if (e.type === 'seed_warning') { warn = m.tick; site = e.building; } if (e.type === 'seed_spawned') spawn = m.tick; } });
+  assert.equal(spawn - warn, BALANCE.seed.warnSec * R, 'announced exactly warnSec ahead');
+  assert.ok(m.sites.includes(site));
+  const b = m.buildings[site];
+  b.owner = 0; b.garrison = 50;                                           // the player takes the site
+  run(m, BALANCE.seed.holdSec * R + 2, ev => { for (const e of ev) if (e.type === 'seed_claimed') { claim = m.tick; assert.equal(e.player, 0); } });
+  assert.ok(claim > 0);
+  const near = m.buildings.find(x => x.type === 'farm' && x.owner === 0 && Math.hypot(x.x - b.x, x.y - b.y) <= BALANCE.seed.radius) ?? (() => { const f = m.buildings.find(x => x.type === 'farm' && Math.hypot(x.x - b.x, x.y - b.y) <= BALANCE.seed.radius)!; f.owner = 0; return f; })();
+  near.garrison = 0;
+  const base = BALANCE.farm.levels[near.level - 1].prod;
+  assert.ok(Math.abs(m.prodRate(near) - base * BALANCE.seed.prodMult) < 1e-9);
+  run(m, R); assert.ok(Math.abs(near.garrison - base * BALANCE.seed.prodMult) < 1e-6, 'the boost is real production, and income() shows it');
+  run(m, BALANCE.seed.buffSec * R);
+  assert.equal(m.buffs.length, 0); assert.ok(Math.abs(m.prodRate(near) - base) < 1e-9, 'the boost ends');
+});
+
+test('Golden Seed: a capture during the hold steals it (the leader can be robbed)', () => {
+  const m = seedMatch();
+  run(m, BALANCE.seed.firstAtSec * R + 1);
+  const site = m.gseed!.site, b = m.buildings[site];
+  const enemy = m.buildings.filter(x => x.owner === 1).sort((x, y) => m.paths[x.id][site].len - m.paths[y.id][site].len)[0];
+  enemy.garrison = 60;
+  const eta = m.eta(enemy.id, site, 1);
+  m.enqueue({ type: 'send', player: 1, from: [enemy.id], to: site, pct: 100 });
+  run(m, Math.round((eta - BALANCE.seed.holdSec / 2) * R));
+  b.owner = 0; b.garrison = 3;                                  // player 0 grabs the seed; the enemy army is half a hold away
+  let held0 = false, winner = -1;
+  run(m, 60 * R, ev => { if (m.gseed?.holder === 0) held0 = true; for (const e of ev) if (e.type === 'seed_claimed') winner = e.player; });
+  assert.ok(held0, 'player 0 was holding it');
+  assert.equal(winner, 1, 'the enemy capture restarted the hold and they claimed it');
+});
+
+// ---------------- drawbridge ----------------
+test('Spring Bridge: closed gate holds groups before it, groups already on it finish crossing, ETA matches arrival', () => {
+  const m = new Match({ map: MAPS[2], balance: BALANCE, seed: 1, players: two });
+  m.players.forEach(p => (p.lastActionTick = 1e9));
+  const [dIn] = m.gateSpan[1][9]!;
+  m.buildings[1].garrison = 40; m.buildings[9].owner = 0;               // a friendly target across the south gate
+  // 1) a group sent so that the gate closes before it reaches it waits at the gate
+  m.bridge!.nextTick = m.tick + Math.round((dIn / BALANCE.unitSpeed - 1.5) * R);
+  m.enqueue({ type: 'send', player: 0, from: [1], to: 9, pct: 25 });
+  m.step();
+  const a = m.armies[0];
+  assert.equal(a.route, 0);
+  while (m.bridge!.open) m.step();
+  run(m, 3 * R);
+  const held = a.dist;
+  run(m, 2 * R);
+  assert.ok(a.dist === held && held < dIn, 'waiting before the gate');
+  let arrived = -1; run(m, 40 * R, ev => { for (const e of ev) if (e.type === 'army_arrived' && e.army === a.id) arrived = m.tick; });
+  assert.ok(arrived > 0 && m.bridge!.open !== undefined, 'it crosses after the gate reopens');
+  // 2) a group already on the bridge when it closes keeps going
+  const n = new Match({ map: MAPS[2], balance: BALANCE, seed: 1, players: two });
+  n.buildings[1].garrison = 40; n.buildings[9].owner = 0;
+  n.enqueue({ type: 'send', player: 0, from: [1], to: 9, pct: 25 }); n.step();
+  const g = n.armies[0];
+  while (g.dist < dIn + 10) n.step();
+  n.bridge!.nextTick = n.tick + 1; n.step(); n.step();
+  assert.equal(n.bridge!.open, false);
+  const d0 = g.dist; n.step(); assert.ok(g.dist > d0, 'on the bridge: keeps crossing');
+  // 3) with the gate closed for long, a new group goes round by the north bridge, and arrives when eta() said
+  const k = new Match({ map: MAPS[2], balance: BALANCE, seed: 1, players: two });
+  k.players.forEach(p => (p.lastActionTick = 1e9));
+  k.buildings[1].garrison = 40; k.buildings[9].owner = 0;
+  k.bridge!.nextTick = 1; k.step(); k.bridge!.nextTick = k.tick + 60 * R;
+  const eta = k.eta(1, 9, 0);
+  k.enqueue({ type: 'send', player: 0, from: [1], to: 9, pct: 25 });
+  let at = -1; const t0 = k.tick;
+  run(k, 60 * R, ev => { for (const e of ev) if (e.type === 'army_arrived') at = k.tick; });
+  assert.equal(k.armies.length, 0);
+  assert.ok(Math.abs((at - t0) / R - eta) < 0.2, `eta ${eta.toFixed(2)} vs ${((at - t0) / R).toFixed(2)}`);
+});
+
+// ---------------- heroes ----------------
+const heroMatch = (hero: 'sprig' | 'armorleaf' | 'turnip') => {
+  const m = new Match({ map: mk([
+    { type: 'farm', level: 1, x: 200, y: 450, slot: 0, garrison: 20 },
+    { type: 'tower', level: 1, x: 420, y: 300, slot: 0, garrison: 10 },
+    { type: 'farm', level: 1, x: 1100, y: 450, slot: 1, garrison: 40 },
+    { type: 'farm', level: 1, x: 700, y: 650, slot: -1, garrison: 5 }]), balance: BALANCE, seed: 1, players: two, heroes: [hero, null] });
+  m.players.forEach(p => (p.lastActionTick = 1e9));
+  return m;
+};
+test('heroes: abilities respect their start cooldown, target rules and cooldown', () => {
+  const m = heroMatch('sprig');
+  m.enqueue({ type: 'ability', player: 0, slot: 0, building: 0 }); m.step();
+  assert.ok(Math.abs(m.buildings[0].garrison - 20) < 0.2, 'not ready at the start');
+  run(m, BALANCE.heroStartCooldownSec * R);
+  m.enqueue({ type: 'ability', player: 0, slot: 0, building: 2 }); m.step();       // enemy building: refused
+  assert.ok(m.abilityReady(0, 0));
+  const g = m.buildings[0].garrison;
+  m.enqueue({ type: 'ability', player: 0, slot: 0, building: 0 }); m.step();
+  assert.ok(Math.abs(m.buildings[0].garrison - g - 10) < 0.1, 'Seed Burst adds units once');
+  m.enqueue({ type: 'ability', player: 0, slot: 0, building: 0 }); m.step();
+  assert.ok(m.buildings[0].garrison - g < 10.2, 'cooldown blocks a second use');
+});
+test('Sprig Green Rush speeds own marching groups; Armorleaf Bulwark and Volley change real numbers', () => {
+  const m = heroMatch('sprig'); run(m, BALANCE.heroStartCooldownSec * R);
+  m.enqueue({ type: 'send', player: 0, from: [0], to: 3, pct: 50 }); m.step();
+  const a = m.armies[0], d0 = a.dist;
+  m.enqueue({ type: 'ability', player: 0, slot: 1 }); m.step(); m.step();
+  assert.ok(Math.abs((a.dist - d0) / 2 - (a.speed / R) * 1.45) < 1e-6 || a.dist - d0 > (a.speed / R) * 2.5);
+  const h = heroMatch('armorleaf'); run(h, BALANCE.heroStartCooldownSec * R);
+  const D = h.defenseFactor(h.buildings[0]);
+  h.enqueue({ type: 'ability', player: 0, slot: 0, building: 0 }); h.step();
+  assert.ok(Math.abs(h.defenseFactor(h.buildings[0]) / D - 1.8) < 1e-9);
+  h.enqueue({ type: 'ability', player: 0, slot: 1, building: 0 }); h.step();
+  assert.ok(h.abilityReady(0, 1), 'Volley needs a tower');
+  h.enqueue({ type: 'ability', player: 0, slot: 1, building: 1 }); h.step();
+  h.buildings[2].garrison = 40;
+  h.enqueue({ type: 'send', player: 1, from: [2], to: 0, pct: 75 });
+  const shots: number[] = [];
+  run(h, 8 * R, ev => { for (const e of ev) if (e.type === 'tower_fired') shots.push(h.tick); });
+  assert.ok(shots.length >= 2 && shots[1] - shots[0] <= Math.round(BALANCE.tower.levels[0].fireIntervalSec * R * 0.4) + 1, `volley gap ${shots[1] - shots[0]}`);
+});
+test('Turnip: Mud is visible before it bites and slows only hostile groups; Snare roots after its warning', () => {
+  const m = heroMatch('turnip'); run(m, BALANCE.heroStartCooldownSec * R);
+  m.buildings[2].garrison = 40;
+  m.enqueue({ type: 'send', player: 1, from: [2], to: 0, pct: 50 }); m.step();
+  const a = m.armies[0];
+  run(m, 3 * R);
+  const p = pointAt(m.pathOf(a), a.dist + 60);
+  m.enqueue({ type: 'ability', player: 0, slot: 1, x: p.x, y: p.y }); m.step();
+  assert.equal(m.zones.length, 1); assert.ok(m.tick < m.zones[0].armTick, 'a warning period before it bites');
+  let rooted = 0; run(m, 4 * R, () => { if (a.state === 'moving' && Math.hypot(a.x - a.px, a.y - a.py) === 0) rooted++; });
+  assert.ok(rooted >= BALANCE.heroes.turnip.abilities[1].durationSec! * R - 2, `rooted ${rooted} ticks`);
+  const q = heroMatch('turnip'); run(q, BALANCE.heroStartCooldownSec * R);
+  q.enqueue({ type: 'ability', player: 0, slot: 0, x: 3000, y: 3000 }); q.step();
+  assert.equal(q.zones.length, 0, 'out of reach: refused');
+});
+
+// ---------------- control mode ----------------
+test('King of the Bloom: holding the central building for holdSec wins', () => {
+  const m = new Match({ map: MAPS[0], balance: BALANCE, seed: 1, players: two, mode: 'control' });
+  const bloom = m.buildings[m.sites[0]];
+  assert.equal(bloom.x, 800);
+  bloom.owner = 1; bloom.garrison = 999;
+  run(m, BALANCE.control.holdSec * R + 2);
+  assert.equal(m.phase, 'ended'); assert.equal(m.winnerTeam, 1);
+});
+
+// ---------------- full matches with every addition ----------------
+test('full AI matches: seed + heroes on every map, bridge map, control mode — all resolve; AI claims seeds and uses heroes', () => {
+  let claims = 0, abilities = 0, holds = 0;
+  const heroes = ['sprig', 'armorleaf', 'turnip'] as const;
+  for (let seed = 1; seed <= 9; seed++) {
+    const map = MAPS[seed % 3], n = map.slots;
+    const m = new Match({ map, balance: BALANCE, seed, goldenSeed: true, mode: seed % 3 === 0 ? 'control' : 'conquest',
+      players: Array.from({ length: n }, (_, s) => ({ slot: s, team: s, isAI: true })), heroes: Array.from({ length: n }, (_, i) => heroes[(seed + i) % 3]) });
+    const ais = Array.from({ length: n }, (_, i) => new AIController(i, i % 2 ? 'normal' : 'hard', seed));
+    let ends = 0;
+    while (m.phase === 'playing') {
+      ais.forEach(a => a.update(m)); m.step(); sane(m);
+      for (const e of m.events) { if (e.type === 'seed_claimed') claims++; if (e.type === 'ability_used') abilities++; if (e.type === 'match_ended') ends++; }
+      if (m.armies.some(a => a.heldTicks > 0 && m.bridge && !m.bridge.open)) holds++;
+    }
+    assert.equal(ends, 1);
+  }
+  console.log(`    seeds claimed ${claims}, abilities used ${abilities}, ticks with a group held at the gate ${holds}`);
+  assert.ok(claims >= 3 && abilities >= 20 && holds > 0);
 });

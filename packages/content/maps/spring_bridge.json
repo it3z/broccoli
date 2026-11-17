@@ -1,0 +1,245 @@
+{
+ "id": "spring_bridge",
+ "name": {
+  "ar": "\u062c\u0633\u0631 \u0627\u0644\u0631\u0628\u064a\u0639",
+  "en": "Spring Bridge"
+ },
+ "biome": "meadow",
+ "width": 1600,
+ "height": 900,
+ "slots": 2,
+ "buildings": [
+  {
+   "type": "farm",
+   "level": 2,
+   "x": 180,
+   "y": 300,
+   "slot": 0,
+   "garrison": 18
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 180,
+   "y": 620,
+   "slot": 0,
+   "garrison": 10
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 400,
+   "y": 160,
+   "slot": -1,
+   "garrison": 8
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 420,
+   "y": 460,
+   "slot": -1,
+   "garrison": 7
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 400,
+   "y": 760,
+   "slot": -1,
+   "garrison": 9
+  },
+  {
+   "type": "tower",
+   "level": 1,
+   "x": 630,
+   "y": 250,
+   "slot": -1,
+   "garrison": 10
+  },
+  {
+   "type": "tower",
+   "level": 1,
+   "x": 630,
+   "y": 650,
+   "slot": -1,
+   "garrison": 10
+  },
+  {
+   "type": "forge",
+   "level": 1,
+   "x": 560,
+   "y": 450,
+   "slot": -1,
+   "garrison": 12
+  },
+  {
+   "type": "farm",
+   "level": 2,
+   "x": 1420,
+   "y": 300,
+   "slot": 1,
+   "garrison": 18
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 1420,
+   "y": 620,
+   "slot": 1,
+   "garrison": 10
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 1200,
+   "y": 160,
+   "slot": -1,
+   "garrison": 8
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 1180,
+   "y": 460,
+   "slot": -1,
+   "garrison": 7
+  },
+  {
+   "type": "farm",
+   "level": 1,
+   "x": 1200,
+   "y": 760,
+   "slot": -1,
+   "garrison": 9
+  },
+  {
+   "type": "tower",
+   "level": 1,
+   "x": 970,
+   "y": 250,
+   "slot": -1,
+   "garrison": 10
+  },
+  {
+   "type": "tower",
+   "level": 1,
+   "x": 970,
+   "y": 650,
+   "slot": -1,
+   "garrison": 10
+  },
+  {
+   "type": "forge",
+   "level": 1,
+   "x": 1040,
+   "y": 450,
+   "slot": -1,
+   "garrison": 12
+  }
+ ],
+ "obstacles": [
+  {
+   "kind": "river",
+   "x": 800,
+   "y": -30,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 32,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 94,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 156,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 300,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 362,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 424,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 486,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 548,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 610,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 750,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 812,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 874,
+   "r": 46
+  },
+  {
+   "kind": "river",
+   "x": 800,
+   "y": 936,
+   "r": 46
+  },
+  {
+   "kind": "gate",
+   "x": 800,
+   "y": 680,
+   "r": 40
+  },
+  {
+   "kind": "rock",
+   "x": 300,
+   "y": 460,
+   "r": 30
+  },
+  {
+   "kind": "rock",
+   "x": 1300,
+   "y": 460,
+   "r": 30
+  }
+ ]
+}

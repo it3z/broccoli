@@ -1,9 +1,10 @@
 import type { AiProfile, Building, Pct } from './types';
 import type { Match } from './sim';
 import { Rng } from './rng';
+import { pointAt } from './paths';
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
-export interface AiDecision { tick: number; action: 'defend' | 'upgrade' | 'build' | 'attack' | 'wait'; detail: string }
+export interface AiDecision { tick: number; action: 'defend' | 'upgrade' | 'build' | 'attack' | 'wait' | 'hero' | 'seed'; detail: string }
 
 /**
  * Computer opponent. No hidden bonuses: it reads only what a human sees on the board (owners, garrisons,
@@ -36,6 +37,40 @@ export class AIController {
     this.nextThink = m.tick + Math.max(1, Math.round((this.rng.range(a, b) / 1000) * m.bal.tickRate));
     if (this.rng.next() < this.prof.skip) return;
     this.think(m);
+  }
+
+  /** Use a hero ability when it clearly pays: shield or fill a building about to fall, slow or root the biggest
+   *  group marching on us, speed up our own attack, or let a tower fire faster at groups in its range. */
+  private hero(m: Match, mine: Building[], threat: Map<number, number>, inDanger: (b: Building) => boolean): boolean {
+    const me = this.player, defs = m.heroAbilities(me);
+    if (!defs.length || this.rng.next() < this.prof.skip) return false;
+    for (let slot = 0; slot < defs.length; slot++) {
+      if (!m.abilityReady(me, slot)) continue;
+      const d = defs[slot], use = (c: { building?: number; x?: number; y?: number }, why: string) => {
+        m.enqueue({ type: 'ability', player: me, slot, ...c }); this.log(m, 'hero', `${d.id} ${why}`); return true;
+      };
+      const danger = mine.filter(inDanger).sort((x, y) => (threat.get(y.id) ?? 0) - (threat.get(x.id) ?? 0))[0];
+      if ((d.id === 'bulwark' || d.id === 'burst') && danger) return use({ building: danger.id }, `on threatened #${danger.id}`);
+      if (d.id === 'burst' && m.tick > 60 * m.bal.tickRate) {
+        const front = [...mine].sort((x, y) => y.garrison - x.garrison)[0];
+        if (front) return use({ building: front.id }, `boost #${front.id}`);
+      }
+      if (d.id === 'rush' && m.armies.filter(a => a.owner === me && a.state === 'moving' && !m.sameTeam(m.buildings[a.to].owner, me)).length >= 2) return use({}, 'own attack under way');
+      if (d.id === 'volley') {
+        const tw = mine.find(b => b.type === 'tower' && m.armies.some(a => !m.sameTeam(a.owner, me) && Math.hypot(a.x - b.x, a.y - b.y) <= m.towerRange(b)));
+        if (tw) return use({ building: tw.id }, `tower #${tw.id}`);
+      }
+      if (d.id === 'mud' || d.id === 'snare') {
+        const big = m.armies.filter(a => !m.sameTeam(a.owner, me) && a.state === 'moving' && m.buildings[a.to].owner === me && a.units >= 6)
+          .sort((x, y) => y.units - x.units)[0];
+        if (big) {
+          const ahead = Math.min(m.pathOf(big).len - 30, big.dist + big.speed * (d.armSec ?? 1) * 1.1);
+          const p = pointAt(m.pathOf(big), ahead);
+          if (m.inReach(me, p.x, p.y, d.range ?? 500)) return use({ x: p.x, y: p.y }, `ahead of ${big.units} units`);
+        }
+      }
+    }
+    return false;
   }
 
   private think(m: Match): void {
@@ -84,9 +119,15 @@ export class AIController {
       return 100;
     };
 
+    // 0. hero abilities (same rules and cooldowns as the player)
+    if (this.hero(m, mine, threat, inDanger)) return;
+    // objectives: the Golden Seed site and, in control mode, the central bloom are worth far more than their walls
+    const sd = m.gseed, bloom = m.mode === 'control' ? m.sites[0] : -1;
+    const objective = (id: number) => (sd && sd.site === id ? 2.6 : 1) * (id === bloom ? 4 : 1);
+
     // 1. defend: reinforce a threatened building from the nearest safe neighbour that can still help
     for (const b of mine) {
-      if (!prof.defends || !inDanger(b)) continue;
+      if (!prof.defends || !(inDanger(b) || (objective(b.id) > 1 && (threat.get(b.id) ?? 0) > 0 && (threat.get(b.id) ?? 0) * 1.4 > b.garrison * m.defenseFactor(b)))) continue;
       const helper = mine.filter(o => o.id !== b.id && spare(o) >= 4)
         .sort((x, y) => m.paths[x.id][b.id].len - m.paths[y.id][b.id].len)[0];
       if (helper) {
@@ -145,7 +186,7 @@ export class AIController {
       const affordable = sum >= need;
       if (!affordable && !allFull) continue;
       const value = (t.type === 'farm' ? 10 + 4 * t.level : t.type === 'forge' ? 12 : 8) * (t.owner >= 0 ? 1.3 : 1);
-      plans.push({ score: (value / (Math.max(need, 1) + far / 40)) * (affordable ? 1 : 0.2), to: t.id, need, orders });
+      plans.push({ score: (value * objective(t.id) / (Math.max(need, 1) + far / 40)) * (affordable ? 1 : 0.2), to: t.id, need, orders });
     }
     if (plans.length === 0) { this.log(m, 'wait', 'no affordable target'); return; }
     plans.sort((x, y) => y.score - x.score);
@@ -153,6 +194,7 @@ export class AIController {
     for (const o of pick.orders) {
       m.enqueue({ type: 'send', player: me, from: [o.b.id], to: pick.to, pct: pctFor(o.b, o.want) });
     }
+    if (objective(pick.to) > 1) this.log(m, 'seed', `objective #${pick.to}`);
     this.log(m, 'attack', `${pick.orders.map(o => `#${o.b.id}x${o.want}`).join('+')} -> #${pick.to} (need ${Math.ceil(pick.need)})`);
   }
 }

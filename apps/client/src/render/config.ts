@@ -17,7 +17,8 @@ export const VIS = {
   spacingAlong: 17,
   exitRankDelay: 0.16,      // seconds between ranks filing out of the door
   exitWalkSec: 0.4,         // seconds a soldier takes from the door to his place
-  laneOffset: 17,           // sideways spacing between squads on the same road
+  laneOffset: 17,
+  buildingBody: 54,         // visual radius of a building and its base; squads keep clear of it           // sideways spacing between squads on the same road
   // battle staging
   engageStart: 175,         // distance at which a hostile group starts fanning out around its target
   engageBlend: 80,

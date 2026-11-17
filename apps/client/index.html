@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#17351f">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22BROCCOLI%3A%20Kingdom%20Clash%22%2C%22display%22%3A%22fullscreen%22%2C%22orientation%22%3A%22landscape%22%7D">
 <title>BROCCOLI: Kingdom Clash</title>
 <style>
   :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
@@ -49,6 +50,18 @@
   #btnSync.on { background: #2f86c9; border-color: #fff; } #btnAll.on { background: #2a8f4a; border-color: #fff; }
   #hud.flip #left { left: auto; right: calc(5px + var(--sr)); } #hud.flip #right { right: auto; left: calc(5px + var(--sl)); }
   #acts { display: flex; flex-direction: column; gap: 6px; }
+  #heroBar { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+  .ab { height: 50px; max-height: 15vh; border-radius: 14px; background: rgba(16,38,26,.85); border: 2px solid rgba(255,255,255,.2); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; position: relative; opacity: .6; }
+  .ab.ready { opacity: 1; border-color: var(--gold); } .ab.aim { background: var(--gold); color: var(--ink); }
+  .ab b { font-size: 17px; } .ab i { font-style: normal; font-size: 8.5px; font-weight: 800; } .ab u { position: absolute; inset: 0; display: grid; place-items: center; text-decoration: none; font-weight: 900; font-size: 18px; color: #fff; text-shadow: 0 1px 3px #000; }
+  .ab u:empty { display: none; }
+  #crown { color: var(--gold); }
+  #learnList { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #learnList h3 { grid-column: 1 / -1; margin: 4px 0 0; font-size: 15px; color: var(--gold); }
+  .lesson { display: flex; align-items: center; gap: 10px; text-align: start; background: rgba(0,0,0,.25); border-radius: 12px; padding: 7px 10px; min-height: 48px; }
+  .lesson b { font-size: 22px; } .lesson span { display: flex; flex-direction: column; flex: 1; } .lesson small { opacity: .8; font-size: 11px; line-height: 1.3; } .lesson i { font-style: normal; color: var(--gold); font-weight: 900; }
+  .lesson.done { outline: 2px solid var(--gold); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+  .grid2 .field { margin: 4px 0; } .grid2 .segb { min-width: 46px; min-height: 34px; padding: 0 8px; font-size: 13px; }
   .act { height: 58px; max-height: 20vh; border-radius: 14px; background: linear-gradient(#48c56c, #2a8f4a); border: 2px solid rgba(255,255,255,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; }
   .act b { font-size: 17px; } .act i { font-style: normal; font-size: 10px; font-weight: 700; } .act u { text-decoration: none; font-size: 10.5px; font-weight: 900; color: var(--gold); direction: ltr; white-space: nowrap; }
   .act:disabled { background: rgba(16,38,26,.75); opacity: .6; }
@@ -68,6 +81,7 @@
   .btn.alt { background: linear-gradient(#f6f1d8, #d9d2ae); color: var(--ink); box-shadow: 0 4px 0 #8f8a63, 0 8px 16px rgba(0,0,0,.3); }
   .btn.warn { background: linear-gradient(#f0787b, #c93a3e); box-shadow: 0 4px 0 #7d1f22, 0 8px 16px rgba(0,0,0,.3); }
   .build { position: absolute; bottom: calc(4px + var(--sb)); left: 0; right: 0; text-align: center; font: 10px ui-monospace, monospace; opacity: .55; direction: ltr; }
+  .vol { display: flex; align-items: center; gap: 8px; direction: ltr; } .vol input { width: min(240px, 40vw); accent-color: var(--gold); height: 30px; } .vol b { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
   h2 { margin: 0 0 8px; font-size: clamp(18px, 5vh, 28px); }
   .panel { background: rgba(10,30,18,.55); border-radius: 20px; padding: 12px 16px; width: min(760px, 100%); }
@@ -85,10 +99,9 @@
   #resTitle.win { color: var(--gold); } #resTitle.loss { color: #ff9c9c; }
   #resStats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; margin-bottom: 8px; min-width: min(420px, 90%); }
   #resStats div { display: flex; justify-content: space-between; gap: 14px; font-size: 14px; } #resStats b { color: var(--gold); }
-  #rotate { display: none; position: absolute; inset: 0; z-index: 9; background: #12301e; align-items: center; justify-content: center; flex-direction: column; font-weight: 900; font-size: 20px; text-align: center; padding: 24px; }
-  #rotate b { font-size: 64px; display: block; animation: rot 1.6s ease-in-out infinite; }
-  @keyframes rot { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(90deg); } }
-  @media (orientation: portrait) and (max-width: 820px) { #rotate { display: flex; } }
+  /* automatic landscape: an upright phone gets the whole game turned 90° (safe-area insets follow the turn) */
+  html.rot #app { inset: auto; top: 0; left: 0; transform-origin: top left; transform: rotate(90deg) translateY(-100%);
+    --sl: env(safe-area-inset-top, 0px); --st: env(safe-area-inset-right, 0px); --sr: env(safe-area-inset-bottom, 0px); --sb: env(safe-area-inset-left, 0px); }
   @media (max-height: 400px) { .btn { min-height: 44px; margin: 4px; font-size: 16px; } .panel { padding: 8px 14px; } .field { margin: 4px 0; } }
 </style>
 </head>
@@ -104,11 +117,12 @@
       <div class="stat" id="income"></div>
       <div class="stat" id="forgeStat"></div>
       <div class="stat" id="clock"></div>
+      <div class="stat" id="crown"></div>
       <div id="foes"></div>
       <button id="btnPause" aria-label="Pause">⏸</button>
     </div>
     <div class="col" id="left"><div id="pcts"></div><button id="btnSync"><b>⏱</b><span data-i18n="sync"></span></button><button id="btnAll"><span data-i18n="all"></span><b id="allCount"></b></button></div>
-    <div class="col" id="right"><div id="acts"></div></div>
+    <div class="col" id="right"><div id="acts"></div><div id="heroBar"></div></div>
     <div id="hint" class="hidden"></div>
     <div id="toast" class="hidden"></div>
     <pre id="debug" class="hidden"></pre>
@@ -120,6 +134,7 @@
     <p class="tag" data-i18n="tagline"></p>
     <div class="row">
       <button class="btn" id="btnSolo" data-i18n="solo"></button>
+      <button class="btn alt" id="btnLearn" data-i18n="learn"></button>
       <button class="btn alt" id="btnHow" data-i18n="howto"></button>
       <button class="btn alt" id="btnSettings" data-i18n="settings"></button>
     </div>
@@ -129,9 +144,14 @@
   <section class="screen" id="setup">
     <div class="panel">
       <div id="maps"></div>
+      <div class="grid2">
       <div class="field"><span data-i18n="opponents"></span><div class="seg" id="segOpp"></div></div>
       <div class="field"><span data-i18n="difficulty"></span><div class="seg" id="segDiff"></div></div>
+      <div class="field"><span data-i18n="mode"></span><div class="seg" id="segMode"></div></div>
+      <div class="field"><span data-i18n="seedOpt"></span><div class="seg" id="segSeed"></div></div>
       <div class="field"><span data-i18n="clashRule"></span><div class="seg" id="segClash"></div></div>
+      </div>
+      <div class="field"><span data-i18n="hero"></span><div class="seg" id="segHero"></div></div>
     </div>
     <div class="row">
       <button class="btn alt" data-back data-i18n="back"></button>
@@ -142,8 +162,13 @@
   <section class="screen" id="howto" style="z-index:6">
     <div class="panel">
       <h2 data-i18n="howto"></h2>
-      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h9"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h7"></li></ol>
+      <ol><li data-i18n="h1"></li><li data-i18n="h2"></li><li data-i18n="h3"></li><li data-i18n="h9"></li><li data-i18n="h4"></li><li data-i18n="h5"></li><li data-i18n="h6"></li><li data-i18n="h8"></li><li data-i18n="h10"></li><li data-i18n="h11"></li><li data-i18n="h7"></li></ol>
     </div>
+    <button class="btn alt" data-back data-i18n="back"></button>
+  </section>
+
+  <section class="screen" id="learn">
+    <div class="panel"><div id="learnList"></div></div>
     <button class="btn alt" data-back data-i18n="back"></button>
   </section>
 
@@ -151,9 +176,9 @@
     <div class="panel">
       <h2 data-i18n="settings"></h2>
       <div class="field"><span data-i18n="language"></span><div class="seg" id="segLang"></div></div>
-      <div class="field"><span data-i18n="music"></span><div class="seg" id="segMusic"></div></div>
-      <div class="field"><span data-i18n="ambience"></span><div class="seg" id="segAmb"></div></div>
-      <div class="field"><span data-i18n="sound"></span><div class="seg" id="segSound"></div></div>
+      <div class="field"><span data-i18n="music"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volMusic"><b></b></label></div>
+      <div class="field"><span data-i18n="ambience"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volAmb"><b></b></label></div>
+      <div class="field"><span data-i18n="sound"></span><label class="vol"><input type="range" min="0" max="100" step="5" id="volFx"><b></b></label></div>
       <div class="field"><span data-i18n="effects"></span><div class="seg" id="segFx"></div></div>
       <div class="field"><span data-i18n="hudSide"></span><div class="seg" id="segSide"></div></div>
     </div>
@@ -183,7 +208,6 @@
     </div>
   </div>
 
-  <div id="rotate"><b>📱</b><span data-i18n="rotate"></span></div>
 </div>
 <script src="app.js"></script>
 </body>

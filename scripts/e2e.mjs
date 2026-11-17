@@ -177,13 +177,23 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(250);
   const f2 = await fit();
   check('viewport height change (Safari bars): map refits and every building stays visible', f1.inside && f2.inside && f1.scale < f0.scale && Math.abs(f2.scale - f0.scale) < 1e-6, `${f0.scale.toFixed(3)} -> ${f1.scale.toFixed(3)} -> ${f2.scale.toFixed(3)}`);
-  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
-  const r1 = (await state(page)).tick; await page.waitForTimeout(700);
+  // portrait: the game turns itself to landscape and keeps playing; touch is remapped through the turn
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+  const rot = await page.evaluate(() => ({ rot: document.documentElement.classList.contains('rot'), w: document.getElementById('app').offsetWidth, h: document.getElementById('app').offsetHeight }));
+  const r1 = (await state(page)).tick; await page.waitForTimeout(600);
   const r2 = (await state(page)).tick;
-  check('rotating to portrait shows the rotate notice and holds the match', await page.isVisible('#rotate') && r2 === r1);
+  check('portrait phone: game auto-rotates to landscape and keeps running', rot.rot && rot.w === 844 && rot.h === 390 && r2 > r1, JSON.stringify(rot));
+  await page.evaluate(() => { const m = window.__broccoli.match; m.buildings[0].garrison = 30; window.__broccoli.selection.clear(); });
+  const pa = await at(page, 0), pb = await at(page, 9);
+  const before9 = (await state(page)).armies.filter(a => a.owner === 0).length;
+  await (await drag(pa, pb))();
+  await page.waitForTimeout(300);
+  const pr = await state(page);
+  check('portrait (rotated): a drag still sends troops to the right building', pr.armies.some(a => a.owner === 0 && a.to === 9) && pr.armies.filter(a => a.owner === 0).length > before9, `screen ${Math.round(pa.x)},${Math.round(pa.y)} -> ${Math.round(pb.x)},${Math.round(pb.y)}`);
+  await page.screenshot({ path: join(shots, '8b-portrait-rotated.png') });
   await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(500);
-  const r3 = await state(page), f3 = await fit();
-  check('rotating back resumes without a jump', r3.tick > r2 && r3.tick - r2 <= 14 && f3.inside, `+${r3.tick - r2} ticks in 0.5 s`);
+  const f3 = await fit();
+  check('back to landscape: no rotation, map still framed', !(await page.evaluate(() => document.documentElement.classList.contains('rot'))) && f3.inside);
 
   // K: pause, wait, resume: no jump in time or production
   await page.tap('#btnPause');
@@ -209,8 +219,8 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await page.tap('#btnResume');
 
   // danger marker: force an enemy army at one of my buildings and look at the screen
-  await page.evaluate(() => { const m = window.__broccoli.match; m.buildings[2].garrison = 30; m.enqueue({ type: 'send', player: 1, from: [2], to: 8, pct: 75 }); });
-  await page.waitForTimeout(2500);
+  await page.evaluate(() => { const m = window.__broccoli.match, e = m.buildings.filter(b => b.owner === 1).sort((a, b) => m.paths[a.id][8].len - m.paths[b.id][8].len).pop(); m.buildings[8].owner = 0; e.garrison = 30; m.enqueue({ type: 'send', player: 1, from: [e.id], to: 8, pct: 75 }); });
+  await page.waitForTimeout(900);
   await page.screenshot({ path: join(shots, '8-under-attack.png') });
   s = await state(page);
   check('enemy army is marching on my building', s.armies.some(a => a.owner === 1 && a.to === 8));
@@ -292,13 +302,35 @@ const at = (page, id) => page.evaluate(i => window.__broccoli.screenOf(i), id);
   await ctx.close();
 }
 
+// ---------- lessons ----------
+{
+  const { ctx, page, errors } = await open({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: UA });
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(p => ({ x: p.x, y: p.y, id: 1 })) });
+  await page.tap('#btnLearn');
+  const items = await page.$$eval('#learnList .lesson', els => els.length);
+  check('lessons & challenges screen lists 5 lessons and 3 challenges', items === 8, String(items));
+  await page.tap('#learnList .lesson:nth-of-type(1)');
+  await page.waitForTimeout(400);
+  const hint = await page.textContent('#hint');
+  const a = await at(page, 0), b = await at(page, 8);
+  await touch('touchStart', [a]); for (let i = 1; i <= 8; i++) { await touch('touchMove', [{ x: a.x + ((b.x - a.x) * i) / 8, y: a.y + ((b.y - a.y) * i) / 8 }]); await page.waitForTimeout(16); } await touch('touchEnd', []);
+  await page.waitForFunction(() => window.__broccoli.lessonResult === 'win', null, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1600);
+  const done = await page.evaluate(() => ({ r: window.__broccoli.lessonResult, panel: document.getElementById('result').classList.contains('on'), saved: localStorage.getItem('broccoli.done.l1') }));
+  check('lesson 1 (send & capture) completes from a real drag and is saved', done.r === 'win' && done.panel && done.saved === '1' && hint.length > 10, JSON.stringify(done));
+  check('O: no console errors (lessons)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
 // ---------- desktop, mouse ----------
 {
   const { ctx, page, errors } = await open({ viewport: { width: 1366, height: 768 } });
   await page.click('#btnSettings'); await page.click('#segLang .segb:nth-child(2)');
-  await page.click('#segMusic .segb:nth-child(2)'); await page.click('#segAmb .segb:nth-child(2)'); await page.click('#segFx .segb:nth-child(2)'); await page.click('#settings [data-back]');
-  const sw = await page.evaluate(() => window.__broccoliAudio.state().on);
-  check('music, ambience and effects have separate switches', sw.music === false && sw.amb === false && sw.fx === true, JSON.stringify(sw));
+  const setVol = (id, v) => page.$eval('#' + id, (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); }, v);
+  await setVol('volMusic', 0); await setVol('volAmb', 30); await page.click('#segFx .segb:nth-child(2)'); await page.click('#settings [data-back]');
+  const sw = await page.evaluate(() => window.__broccoliAudio.state());
+  check('music, ambience and effects have independent levels', sw.on.music === false && sw.on.amb === true && Math.abs(sw.levels.amb - 0.3) < 1e-9 && sw.levels.fx === 1, JSON.stringify(sw.levels));
   check('language switch works', (await page.textContent('#btnSolo')) === 'Solo Skirmish');
   await page.click('#btnSolo'); await page.click('#btnStart');
   await page.waitForTimeout(500);
