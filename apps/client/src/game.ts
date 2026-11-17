@@ -1,7 +1,7 @@
 import { AIController, BALANCE, MAPS, Match, type Building, type BuildingType, type Difficulty, type Pct } from '../../../packages/simulation/src/index';
 import { Renderer, colorOf, type BoxState, type DragState } from './render/renderer';
 import { VIS } from './render/config';
-import { sfx, unlockAudio } from './audio/sfx';
+import { setIntensity, setScene, sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 
 export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean }
@@ -47,6 +47,7 @@ export class Session {
     this.bind();
     this.buildHud();
     this.renderer.resize(this.match);
+    setScene({ birds: true, water: map.obstacles.some(o => o.kind === 'pond') });
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -61,6 +62,7 @@ export class Session {
     clearTimeout(this.toastTimer);
     if (this.ptr) clearTimeout(this.ptr.timer);
     $('debug').classList.add('hidden');
+    setScene(null); setIntensity(0);
   }
 
   // ---------- loop ----------
@@ -103,26 +105,38 @@ export class Session {
     this.raf = requestAnimationFrame(this.frame);
   };
 
-  /** Sound and messages for what just happened in the simulation. */
+  /** Stereo position of a world point: -1 left edge of the screen, +1 right edge. */
+  private pan(x: number): number {
+    const p = this.renderer.toScreen(x, 0).x / Math.max(1, this.canvas.clientWidth);
+    return Math.max(-0.85, Math.min(0.85, (p - 0.5) * 1.8));
+  }
+
+  /** Sound and messages for what just happened in the simulation. Every cue is tied to a simulation event. */
   private react(): void {
-    const m = this.match;
+    const m = this.match, bx = (id: number) => this.pan(m.buildings[id].x);
     this.renderer.onEvents(m, m.events);
     for (const e of m.events) {
-      if (e.type === 'building_captured') { if (e.by === this.human) sfx.capture(); else if (e.from === this.human) sfx.lost(); }
-      else if (e.type === 'tower_fired') sfx.shot();
-      else if (e.type === 'clash_started') sfx.clash();
-      else if (e.type === 'clash_hit') { if (this.time - this.lastHitSfx > 0.09) { this.lastHitSfx = this.time; sfx.hit(); } }
-      else if (e.type === 'army_sent' && e.owner === this.human && !this.autopilot) sfx.march();
+      if (e.type === 'building_captured') { if (e.from === this.human) sfx.lost(bx(e.building)); else sfx.capture(bx(e.building)); }
+      else if (e.type === 'tower_fired') sfx.shot(bx(e.tower));
+      else if (e.type === 'projectile_hit') sfx.impact(this.pan(e.x));
+      else if (e.type === 'battle_hit') sfx.hit(bx(e.building));
+      else if (e.type === 'clash_started') sfx.clash(this.pan(e.x));
+      else if (e.type === 'clash_hit') sfx.hit(this.pan(e.x));
+      else if (e.type === 'army_sent') sfx.march(bx(e.from));
       else if (e.type === 'order_queued' && e.player === this.human) sfx.queued();
-      else if (e.type === 'battle_hit') { if (this.time - this.lastHitSfx > 0.09) { this.lastHitSfx = this.time; sfx.hit(); } }
-      else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0 && m.buildings[e.building].owner === this.human) sfx.defended();
-      else if ((e.type === 'upgraded' || e.type === 'converted') && m.buildings[e.building].owner === this.human) sfx.upgrade();
+      else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0 && m.buildings[e.building].owner === this.human) sfx.defended(bx(e.building));
+      else if ((e.type === 'upgraded' || e.type === 'converted') && m.buildings[e.building].owner === this.human) sfx.upgrade(bx(e.building));
       else if (e.type === 'order_rejected' && e.player === this.human && !this.autopilot) this.toast(t(e.reason === 'empty' ? 'msgEmpty' : e.reason === 'cooldown' ? 'msgCooldown' : 'msgNotYours'));
     }
+    // tower draw creak a few ticks before a shot, footsteps under one marching squad at a time
+    for (const b of m.buildings) if (b.type === 'tower' && b.owner >= 0 && b.cooldown === 4 && m.armies.some(a => !m.sameTeam(a.owner, b.owner) && (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= m.towerRange(b) ** 2)) sfx.towerDraw(bx(b.id));
+    if (m.tick % 7 === 0) { const mv = m.armies.filter(a => a.state === 'moving'); if (mv.length) sfx.steps(this.pan(mv[(m.tick / 7) % mv.length | 0].x)); }
+    // music follows the fight: more squads and battles bring the second layer in, and it settles slowly afterwards
+    if (m.tick % 10 === 0) setIntensity(m.armies.length * 0.1 + m.armies.filter(a => a.state !== 'moving').length * 0.3);
     // one alert per newly threatened building, never more often than every few seconds
     const now = new Set<number>();
     for (const a of m.armies) { const b = m.buildings[a.to]; if (b.owner === this.human && !m.sameTeam(a.owner, this.human)) now.add(b.id); }
-    for (const id of now) if (!this.alerted.has(id) && this.time - this.lastAlert > 4) { this.lastAlert = this.time; sfx.alert(); break; }
+    for (const id of now) if (!this.alerted.has(id) && this.time - this.lastAlert > 4) { this.lastAlert = this.time; sfx.alert(bx(id)); break; }
     this.alerted = now;
   }
 

@@ -9,6 +9,7 @@ const S: Record<string, [string, string]> = {
   language: ['اللغة', 'Language'],
   sound: ['المؤثرات الصوتية', 'Sound effects'],
   music: ['الموسيقى', 'Music'],
+  ambience: ['أصوات الطبيعة', 'Ambience'],
   effects: ['المؤثرات البصرية', 'Visual effects'],
   fxHigh: ['كاملة', 'Full'],
   fxLow: ['مخففة', 'Reduced'],

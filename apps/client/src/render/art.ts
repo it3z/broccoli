@@ -4,8 +4,8 @@ import type { BuildingType } from '../../../../packages/simulation/src/index';
 export const TILT = 0.78; // vertical squash of the ground plane (2.5D look)
 export const TEAM = ['#2fbf71', '#e5484d', '#3b9eff', '#a070ff'];
 export const TEAM_DARK = ['#1c7a47', '#9c2327', '#1f63b0', '#6337c4'];
-export const NEUTRAL = '#cfc8b4';
-export const NEUTRAL_DARK = '#857f6c';
+export const NEUTRAL = '#dcd7c8';      // light stone
+export const NEUTRAL_DARK = '#8d887a';
 export const colorOf = (owner: number) => (owner < 0 ? NEUTRAL : TEAM[owner % 4]);
 export const darkOf = (owner: number) => (owner < 0 ? NEUTRAL_DARK : TEAM_DARK[owner % 4]);
 
@@ -17,33 +17,74 @@ export function shadow(c: Ctx, x: number, y: number, rx: number, ry: number, a =
   c.fillStyle = `rgba(10,30,15,${a})`; ell(c, x, y, rx, ry); c.fill();
 }
 
-let flagRaise = 1; // 0..1: how far up the pole the flag is (animated when a building changes owner)
-function flag(c: Ctx, x: number, y: number, owner: number, t: number) {
+// ---------- materials ----------
+const WOOD = '#b98a56', WOOD_D = '#84603a', WOOD_L = '#d9b07c';
+const STONE = '#a8a69d', STONE_D = '#77756e', STONE_L = '#d3d1c8';
+export const AMBER = '#ffb43a';
+
+/** Warm timber wall with plank seams and a lit top edge. */
+function timber(c: Ctx, x: number, y: number, w: number, h: number) {
+  c.fillStyle = WOOD; c.strokeStyle = WOOD_D; c.lineWidth = 1.6;
+  c.beginPath(); c.roundRect(x, y, w, h, 4); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(90,60,30,.55)'; c.lineWidth = 1;
+  for (let px = x + 8; px < x + w - 3; px += 9) { c.beginPath(); c.moveTo(px, y + 3); c.lineTo(px, y + h - 2); c.stroke(); }
+  c.strokeStyle = 'rgba(110,78,44,.5)';
+  for (let i = 0; i < w / 14; i++) { const gx = x + 5 + i * 14, gy = y + 8 + ((i * 7) % (h - 12)); c.beginPath(); c.moveTo(gx, gy); c.lineTo(gx + 3, gy + 4); c.stroke(); }
+  c.fillStyle = WOOD_L; c.fillRect(x + 2, y + 1.5, w - 4, 2.5);
+}
+
+/** Rough stone course: staggered blocks with light upper edges. */
+function masonry(c: Ctx, xl: number, xr: number, y0: number, y1: number, taper = 0) {
+  c.fillStyle = STONE; c.strokeStyle = STONE_D; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(xl, y1); c.lineTo(xl + taper, y0); c.lineTo(xr - taper, y0); c.lineTo(xr, y1); c.closePath(); c.fill(); c.stroke();
+  const rows = Math.max(2, Math.round((y1 - y0) / 9));
+  for (let r = 0; r < rows; r++) {
+    const ya = y0 + ((y1 - y0) * r) / rows, k = r / rows, l = xl + taper * (1 - k), rr = xr - taper * (1 - k);
+    c.strokeStyle = 'rgba(70,68,62,.6)'; c.lineWidth = 1;
+    if (r) { c.beginPath(); c.moveTo(l, ya); c.lineTo(rr, ya); c.stroke(); }
+    for (let x = l + (r % 2 ? 7 : 13); x < rr - 3; x += 13) { c.beginPath(); c.moveTo(x, ya); c.lineTo(x, ya + (y1 - y0) / rows); c.stroke(); }
+    c.strokeStyle = 'rgba(255,255,245,.45)'; c.beginPath(); c.moveTo(l + 2, ya + 1.5); c.lineTo(rr - 2, ya + 1.5); c.stroke();
+  }
+}
+
+let flagRaise = 1;      // 0..1: how far up the pole the flag is (lowered and raised when a building changes owner)
+let flagOwner = -1;     // whose flag is on the pole right now (the old owner's while it comes down)
+function flag(c: Ctx, x: number, y: number, _owner: number, t: number) {
+  const owner = flagOwner;
   c.strokeStyle = '#5b4a2e'; c.lineWidth = 3; c.lineCap = 'round';
-  c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 30); c.stroke();
+  c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 32); c.stroke();
+  c.fillStyle = '#e9c46a'; circ(c, x, y - 33, 2.4); c.fill();
   const w = Math.sin(t * 5 + x) * 3;
-  c.save(); c.translate(0, (1 - flagRaise) * 17);
+  c.save(); c.translate(0, (1 - flagRaise) * 18);
   c.fillStyle = colorOf(owner); c.strokeStyle = darkOf(owner); c.lineWidth = 1.5;
-  c.beginPath(); c.moveTo(x, y - 30); c.quadraticCurveTo(x + 12, y - 30 + w, x + 22, y - 23 + w); c.quadraticCurveTo(x + 11, y - 18 + w, x, y - 15); c.closePath();
-  c.fill(); c.stroke();
-  emblemShape(c, x + 8, y - 23 + w * 0.5, 2.6, owner, owner < 0 ? '#857f6c' : '#fff');
+  c.beginPath(); c.moveTo(x, y - 31);
+  // each team flies its own flag shape as well as its own colour
+  const k = owner < 0 ? -1 : owner % 4;
+  if (k === 0) { c.quadraticCurveTo(x + 13, y - 31 + w, x + 24, y - 23.5 + w); c.quadraticCurveTo(x + 12, y - 18 + w, x, y - 15); }            // pennant
+  else if (k === 1) { c.lineTo(x + 24, y - 31 + w); c.lineTo(x + 17, y - 23 + w); c.lineTo(x + 24, y - 15 + w); c.lineTo(x, y - 15); }           // swallowtail
+  else if (k === 2) { c.lineTo(x + 22, y - 31 + w); c.lineTo(x + 22, y - 15 + w); c.lineTo(x, y - 15); }                                         // square
+  else if (k === 3) { c.lineTo(x + 20, y - 31 + w); c.quadraticCurveTo(x + 27, y - 23 + w, x + 20, y - 15 + w); c.lineTo(x, y - 15); }           // rounded
+  else { c.lineTo(x + 16, y - 29 + w * 0.5); c.lineTo(x + 16, y - 19 + w * 0.5); c.lineTo(x, y - 17); }                                          // small plain
+  c.closePath(); c.fill(); c.stroke();
+  emblemShape(c, x + 8.5, y - 23 + w * 0.5, 2.7, owner, owner < 0 ? NEUTRAL_DARK : '#fff');
   c.restore();
 }
 
 function baseRing(c: Ctx, owner: number) {
-  const rx = 54, ry = 54 * TILT * 0.55;
-  if (owner >= 0) { c.fillStyle = colorOf(owner); c.globalAlpha = 0.22; ell(c, 0, 0, rx + 12, ry + 6); c.fill(); }
-  c.fillStyle = owner < 0 ? '#a9a48f' : colorOf(owner); c.globalAlpha = owner < 0 ? 0.35 : 0.6; ell(c, 0, 0, rx, ry); c.fill();
-  c.globalAlpha = 1; c.strokeStyle = owner < 0 ? 'rgba(90,86,70,.7)' : darkOf(owner); c.lineWidth = owner < 0 ? 2.5 : 4; ell(c, 0, 0, rx, ry); c.stroke();
+  const rx = 56, ry = 56 * TILT * 0.55;
+  if (owner >= 0) { c.fillStyle = colorOf(owner); c.globalAlpha = 0.2; ell(c, 0, 0, rx + 12, ry + 6); c.fill(); }
+  c.fillStyle = owner < 0 ? '#c9c4b2' : colorOf(owner); c.globalAlpha = owner < 0 ? 0.4 : 0.62; ell(c, 0, 0, rx, ry); c.fill();
+  c.globalAlpha = 1; c.strokeStyle = owner < 0 ? 'rgba(110,105,90,.75)' : darkOf(owner); c.lineWidth = owner < 0 ? 2.5 : 4; ell(c, 0, 0, rx, ry); c.stroke();
   if (owner >= 0) { c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; ell(c, 0, 0, rx - 5, ry - 3); c.stroke(); }
 }
 
-const GREENS = ['#226b30', '#2f8f3f', '#4db85a'], DULL = ['#5d6b52', '#7b8a6c', '#9aa88b'];
+const GREENS = ['#1f6630', '#2f8f3f', '#56bf5f'], DULL = ['#5f6b55', '#7f8c70', '#a3ae93'];
+/** One broccoli floret: volume from three tones plus a thin lit rim on the upper-left edge. */
 function floret(c: Ctx, x: number, y: number, r: number, pal = GREENS) {
-  c.fillStyle = pal[0]; circ(c, x, y + r * 0.18, r); c.fill();
+  c.fillStyle = pal[0]; circ(c, x, y + r * 0.2, r); c.fill();
   c.fillStyle = pal[1]; circ(c, x, y, r); c.fill();
-  c.fillStyle = pal[2]; circ(c, x - r * 0.28, y - r * 0.3, r * 0.55); c.fill();
-  c.fillStyle = 'rgba(255,255,255,.18)'; circ(c, x - r * 0.38, y - r * 0.42, r * 0.22); c.fill();
+  c.fillStyle = pal[2]; circ(c, x - r * 0.26, y - r * 0.28, r * 0.58); c.fill();
+  c.strokeStyle = 'rgba(235,255,200,.5)'; c.lineWidth = 1.4; c.beginPath(); c.arc(x, y, r - 1, Math.PI * 1.05, Math.PI * 1.6); c.stroke();
 }
 
 /** Team banner hung on a building front: the strongest ownership cue after the ring. */
@@ -66,78 +107,156 @@ export function emblemShape(c: Ctx, x: number, y: number, r: number, owner: numb
   c.closePath(); c.fill();
 }
 
-/** Sprout Farm: a stalk house under a broccoli crown that grows with each level. */
-function farm(c: Ctx, level: number, owner: number, t: number) {
-  const h = 34 + level * 5, w = 17 + level;
-  c.fillStyle = '#cfc98f';
-  c.beginPath(); c.moveTo(-w - 4, 0); c.quadraticCurveTo(-w, -h * 0.5, -w + 3, -h); c.lineTo(w - 3, -h); c.quadraticCurveTo(w, -h * 0.5, w + 4, 0); c.closePath(); c.fill();
-  c.fillStyle = '#eee8c6';
-  c.beginPath(); c.moveTo(-w + 2, 0); c.quadraticCurveTo(-w + 4, -h * 0.5, -w + 6, -h); c.lineTo(2, -h); c.lineTo(4, 0); c.closePath(); c.fill();
-  c.strokeStyle = '#8f8a55'; c.lineWidth = 2;
-  c.beginPath(); c.moveTo(-w - 4, 0); c.quadraticCurveTo(-w, -h * 0.5, -w + 3, -h); c.moveTo(w - 3, -h); c.quadraticCurveTo(w, -h * 0.5, w + 4, 0); c.stroke();
-  c.fillStyle = '#5b4a2e'; c.beginPath(); c.moveTo(-7, 0); c.lineTo(-7, -13); c.arc(0, -13, 7, Math.PI, 0); c.lineTo(7, 0); c.closePath(); c.fill();
-  c.fillStyle = '#ffe58a'; circ(c, w - 8, -h * 0.55, 3.5); c.fill();
-  const r = 15 + level * 2.2, cy = -h - r * 0.55;
-  const spots: [number, number, number][] = [[-r * 1.15, 6, 0.8], [r * 1.15, 6, 0.8], [0, 4, 1], [-r * 0.62, -r * 0.6, 0.9], [r * 0.62, -r * 0.6, 0.9]];
-  if (level >= 2) spots.push([0, -r * 1.05, 0.85]);
-  if (level >= 3) spots.push([-r * 1.7, -r * 0.2, 0.62], [r * 1.7, -r * 0.2, 0.62]);
-  if (level >= 4) spots.push([-r * 1.1, -r * 1.2, 0.6], [r * 1.1, -r * 1.2, 0.6]);
-  spots.sort((a, b) => a[1] - b[1]);
-  const pal = owner < 0 ? DULL : GREENS;
-  if (level >= 3) { floret(c, -w - 22, -9, 10, pal); c.fillStyle = '#b08a52'; c.fillRect(w + 8, -12, 4, 12); c.fillRect(w + 18, -12, 4, 12); c.fillRect(w + 6, -9, 18, 3); }
-  for (const [x, y, s] of spots) floret(c, x, cy + y, r * s, pal);
-  banner(c, -w + 5, -h + 3, 12, 17, owner);
-  const top = cy - r * (level >= 2 ? 1.7 : 0.9);
-  flag(c, 0, top, owner, t);
-  if (level >= 4) { c.fillStyle = '#ffd95a'; c.strokeStyle = '#a8801d'; c.lineWidth = 1; circ(c, 0, top - 33, 4.5); c.fill(); c.stroke(); }
+function door(c: Ctx, x: number, w: number, h: number) {
+  c.fillStyle = '#5a3d22'; c.strokeStyle = WOOD_L; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(x - w, 0); c.lineTo(x - w, -h + w); c.arc(x, -h + w, w, Math.PI, 0); c.lineTo(x + w, 0); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(30,18,8,.6)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, -h); c.stroke();
+  c.fillStyle = '#e9c46a'; circ(c, x + w * 0.45, -h * 0.42, 1.3); c.fill();
 }
 
-/** Thorn Tower: a tapering thorn stalk with a watch pod. */
+/**
+ * Sprout Village: a low timber hall under a wide broccoli roof. Each level changes the outline:
+ * L2 adds a side wing, L3 a second wing and a fence, L4 a taller crown with a golden finial.
+ */
+function farm(c: Ctx, level: number, owner: number, t: number) {
+  const pal = owner < 0 ? DULL : GREENS, w = 27 + level, h = 27;
+  const r = 13.5 + level * 0.8, y0 = -h - 9, top = y0 - r * (level >= 4 ? 3.3 : 2.5);
+  if (pass === DYNAMIC) { flag(c, 0, top, owner, t); return; }
+  if (level >= 3) {                                        // left wing
+    timber(c, -w - 21, -17, 24, 17); floret(c, -w - 15, -21, 9, pal); floret(c, -w - 4, -22, 9, pal);
+    c.fillStyle = WOOD_D; for (let i = 0; i < 3; i++) c.fillRect(-w - 34 + i * 6, 2, 2.5, 9);
+    c.fillRect(-w - 35, 4, 17, 2);
+  }
+  if (level >= 2) {                                        // right wing
+    timber(c, w - 3, -19, 25, 19); floret(c, w + 4, -23, 10, pal); floret(c, w + 16, -24, 10, pal);
+    c.fillStyle = '#ffe58a'; c.fillRect(w + 7, -13, 6, 6); c.strokeStyle = WOOD_D; c.lineWidth = 1; c.strokeRect(w + 7, -13, 6, 6);
+  }
+  timber(c, -w, -h, w * 2, h);
+  door(c, -3, 7.5, 19);
+  c.fillStyle = '#ffe58a'; c.strokeStyle = WOOD_D; c.lineWidth = 1.2; circ(c, w - 10, -15, 4); c.fill(); c.stroke();
+  // green eave under the roof
+  c.fillStyle = owner < 0 ? '#6f7b63' : '#3a8a3d'; c.beginPath(); c.roundRect(-w - 6, -h - 5, w * 2 + 12, 8, 4); c.fill();
+  // wide, low broccoli roof
+  const n = 5, spread = (w + 9) * 2;
+  for (let i = 0; i < n; i++) floret(c, -spread / 2 + (spread * i) / (n - 1), y0 - (i === 0 || i === n - 1 ? 0 : 3), r, pal);
+  for (let i = 0; i < 4; i++) floret(c, -spread * 0.36 + (spread * 0.72 * i) / 3, y0 - r * 0.95, r * 0.95, pal);
+  for (let i = 0; i < (level >= 4 ? 3 : 2); i++) floret(c, (i - (level >= 4 ? 1 : 0.5)) * r * 1.25, y0 - r * 1.85, r * 0.9, pal);
+  if (level >= 4) floret(c, 0, y0 - r * 2.7, r * 0.85, pal);
+  banner(c, -w + 8, -h + 4, 11, 16, owner);
+  if (pass !== STATIC) flag(c, 0, top, owner, t);
+  if (level >= 4) { c.fillStyle = '#ffd95a'; c.strokeStyle = '#a8801d'; c.lineWidth = 1; circ(c, 0, top - 36, 4); c.fill(); c.stroke(); }
+}
+
+let towerAim = 0, towerTension = 0;
+/**
+ * Thorn Tower: a tall stalk on a stone base with a turning launcher head. L2 adds a throwing platform,
+ * L3 a wider platform and more thorns, L4 a stone crown.
+ */
 function tower(c: Ctx, level: number, owner: number, t: number) {
-  const h = 62 + level * 9;
-  c.fillStyle = owner < 0 ? '#5d6b52' : '#3f6b2c';
-  c.beginPath(); c.moveTo(-19, 0); c.quadraticCurveTo(-13, -h * 0.6, -11, -h); c.lineTo(11, -h); c.quadraticCurveTo(13, -h * 0.6, 19, 0); c.closePath(); c.fill();
-  c.fillStyle = owner < 0 ? '#7f8d72' : '#5c9140';
-  c.beginPath(); c.moveTo(-14, 0); c.quadraticCurveTo(-9, -h * 0.6, -8, -h); c.lineTo(0, -h); c.lineTo(-1, 0); c.closePath(); c.fill();
-  c.fillStyle = '#e9dfb0'; c.strokeStyle = '#7a6f3c'; c.lineWidth = 1.2;
-  const n = 2 + level;
+  const h = 66 + level * 9, dull = owner < 0;
+  if (pass !== DYNAMIC) {
+  masonry(c, -26, 26, -24, 0, 6);
+  c.fillStyle = dull ? '#5f6b55' : '#3f6b2c';
+  c.beginPath(); c.moveTo(-15, -24); c.quadraticCurveTo(-11, -h * 0.65, -10, -h); c.lineTo(10, -h); c.quadraticCurveTo(11, -h * 0.65, 15, -24); c.closePath(); c.fill();
+  c.fillStyle = dull ? '#84907a' : '#5f9643';
+  c.beginPath(); c.moveTo(-11, -24); c.quadraticCurveTo(-8, -h * 0.65, -7, -h); c.lineTo(0, -h); c.lineTo(-1, -24); c.closePath(); c.fill();
+  c.fillStyle = '#ece3b6'; c.strokeStyle = '#7a6f3c'; c.lineWidth = 1.2;
+  const n = 1 + level;
   for (let i = 0; i < n; i++) {
-    const y = -h * (0.18 + (0.62 * i) / n), s = i % 2 ? 1 : -1, x = s * (16 - (i / n) * 5);
+    const y = -30 - ((h - 44) * i) / n, s = i % 2 ? 1 : -1, x = s * (13 - (i / n) * 3);
     c.beginPath(); c.moveTo(x - s * 3, y - 5); c.lineTo(x + s * 13, y - 9); c.lineTo(x - s * 3, y + 4); c.closePath(); c.fill(); c.stroke();
   }
-  c.fillStyle = colorOf(owner); c.fillRect(-14, -h * 0.5 - 5, 28, 10);
-  banner(c, 0, -h * 0.5 + 5, 13, 18, owner);
-  c.fillStyle = '#2c4f1f'; ell(c, 0, -h, 20, 8); c.fill();
-  c.fillStyle = '#6fae4c';
-  for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(i * 8 - 4, -h); c.lineTo(i * 8, -h - 13 - (i === 0 ? 4 : 0)); c.lineTo(i * 8 + 4, -h); c.closePath(); c.fill(); }
-  flag(c, 0, -h - 12, owner, t);
-}
-
-/** Sun Forge: a warm clay dome with a glowing sun disc. */
-function forge(c: Ctx, owner: number, t: number) {
-  c.fillStyle = '#8a4f22'; c.beginPath(); c.moveTo(-34, 0); c.bezierCurveTo(-36, -52, 36, -52, 34, 0); c.closePath(); c.fill();
-  c.fillStyle = '#c47a35'; c.beginPath(); c.moveTo(-28, 0); c.bezierCurveTo(-30, -46, 16, -48, 12, 0); c.closePath(); c.fill();
-  c.fillStyle = colorOf(owner); c.fillRect(-34, -8, 68, 8);
-  banner(c, 22, -30, 12, 17, owner);
-  const gy = -24, pulse = 1 + Math.sin(t * 4) * 0.08;
-  c.save(); c.translate(0, gy); c.rotate(t * 0.6);
-  c.fillStyle = 'rgba(255,196,60,.9)';
-  for (let i = 0; i < 8; i++) { c.rotate(Math.PI / 4); c.beginPath(); c.moveTo(-3.5, -11); c.lineTo(0, -20 * pulse); c.lineTo(3.5, -11); c.closePath(); c.fill(); }
+  c.fillStyle = colorOf(owner); c.strokeStyle = darkOf(owner); c.lineWidth = 1.2; c.beginPath(); c.roundRect(-13.5, -h * 0.55 - 5, 27, 10, 3); c.fill(); c.stroke();
+  banner(c, 0, -h * 0.55 + 5, 12, 16, owner);
+  if (level >= 2) {                                        // throwing platform
+    const pw = level >= 3 ? 27 : 22;
+    c.fillStyle = WOOD_D; ell(c, 0, -h + 5, pw, 8); c.fill();
+    c.fillStyle = WOOD; ell(c, 0, -h + 2, pw, 8); c.fill();
+    c.strokeStyle = WOOD_L; c.lineWidth = 1.5; ell(c, 0, -h + 2, pw - 2, 6.5); c.stroke();
+    c.fillStyle = WOOD_D; for (const px of [-pw + 3, -pw / 2, pw / 2, pw - 3]) c.fillRect(px - 1.2, -h - 8, 2.4, 9);
+    if (level >= 4) { c.fillStyle = STONE; c.strokeStyle = STONE_D; c.lineWidth = 1; for (const px of [-pw + 1, pw - 9]) { c.beginPath(); c.roundRect(px, -h - 13, 8, 8, 2); c.fill(); c.stroke(); } }
+  }
+  }
+  if (pass === STATIC) return;
+  flag(c, -7, -h - 4, owner, t);
+  // launcher head: turns toward the enemy, pulls back before a shot
+  c.save(); c.translate(0, -h - 9);
+  c.fillStyle = dull ? '#6f7b63' : '#2c5a26'; circ(c, 0, 2, 11); c.fill();
+  c.fillStyle = dull ? '#93a086' : '#4f8f3d'; circ(c, -2, -1, 8); c.fill();
+  c.rotate(towerAim);
+  const pull = towerTension * 7;
+  c.strokeStyle = WOOD_D; c.lineWidth = 3; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(4, -11); c.quadraticCurveTo(10 - pull * 0.5, 0, 4, 11); c.stroke();                     // bow arms
+  c.strokeStyle = '#f4ecc4'; c.lineWidth = 1; c.beginPath(); c.moveTo(4, -11); c.lineTo(2 - pull, 0); c.lineTo(4, 11); c.stroke();   // string
+  c.fillStyle = '#fff7cf'; c.strokeStyle = '#6d6335'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(20 - pull, 0); c.lineTo(4 - pull, -3.5); c.lineTo(7 - pull, 0); c.lineTo(4 - pull, 3.5); c.closePath(); c.fill(); c.stroke();   // loaded thorn
   c.restore();
-  c.fillStyle = '#ffd95a'; circ(c, 0, gy, 11); c.fill();
-  c.fillStyle = '#fff3b8'; circ(c, -3, gy - 3, 4.5); c.fill();
-  c.fillStyle = '#6b3d1a'; c.fillRect(16, -52, 9, 16);
-  c.fillStyle = `rgba(255,220,150,${0.35 + 0.25 * Math.sin(t * 3)})`; circ(c, 20.5, -58 - ((t * 14) % 14), 4); c.fill();
-  flag(c, -16, -40, owner, t);
 }
 
-export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: number, t: number, raise = 1) {
-  flagRaise = raise;
-  shadow(c, 6, 4, 46, 17);
+/** Sun Forge: a wide stone hall with an amber furnace mouth and a smoking chimney. */
+function forge(c: Ctx, owner: number, t: number) {
+  if (pass !== DYNAMIC) {
+    masonry(c, 20, 36, -64, -24, 1.5);                     // chimney
+    c.fillStyle = STONE_D; c.fillRect(18, -67, 20, 5);
+    masonry(c, -42, 42, -30, 0, 4);
+    // timber roof
+    c.fillStyle = WOOD_D; c.beginPath(); c.moveTo(-46, -28); c.lineTo(-30, -47); c.lineTo(22, -47); c.lineTo(46, -28); c.closePath(); c.fill();
+    c.fillStyle = WOOD; c.beginPath(); c.moveTo(-42, -30); c.lineTo(-29, -44); c.lineTo(20, -44); c.lineTo(40, -30); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(90,60,30,.55)'; c.lineWidth = 1; for (let x = -30; x < 34; x += 9) { c.beginPath(); c.moveTo(x, -31); c.lineTo(x + 3, -43); c.stroke(); }
+    c.fillStyle = WOOD_L; c.fillRect(-28, -45.5, 48, 2.2);
+    c.fillStyle = '#3b2412'; c.strokeStyle = STONE_L; c.lineWidth = 2;   // furnace mouth
+    c.beginPath(); c.moveTo(-17, 0); c.lineTo(-17, -12); c.arc(-4, -12, 13, Math.PI, 0); c.lineTo(9, 0); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#ffd95a'; c.strokeStyle = '#a8801d'; c.lineWidth = 1.2; circ(c, -4, -36.5, 5.5); c.fill(); c.stroke();
+    c.fillStyle = colorOf(owner); c.fillRect(-42, -3, 84, 3.5);
+    banner(c, -31, -27, 12, 16, owner);
+  }
+  if (pass === STATIC) return;
+  // live parts: chimney smoke, the amber fire and its glow, embers, the flag
+  for (let i = 0; i < 3; i++) {
+    const k = ((t * 0.45 + i / 3) % 1);
+    c.fillStyle = `rgba(235,232,222,${0.5 * (1 - k)})`; circ(c, 28 + Math.sin(t + i * 2) * 4 * k + k * 8, -70 - k * 30, 5 + k * 8); c.fill();
+  }
+  const glow = 0.75 + 0.25 * Math.sin(t * 5);
+  c.fillStyle = `rgba(255,190,70,${0.16 * glow})`; circ(c, -4, -9, 27); c.fill();
+  c.fillStyle = `rgba(255,214,110,${0.2 * glow})`; circ(c, -4, -9, 17); c.fill();
+  c.fillStyle = AMBER; c.beginPath(); c.moveTo(-13, 0); c.quadraticCurveTo(-12, -13 * glow, -7, -6); c.quadraticCurveTo(-4, -19 * glow, 0, -7); c.quadraticCurveTo(3, -13 * glow, 5, 0); c.closePath(); c.fill();
+  c.fillStyle = '#fff1a8'; c.beginPath(); c.moveTo(-8, 0); c.quadraticCurveTo(-4, -10 * glow, 0, 0); c.closePath(); c.fill();
+  for (let i = 0; i < 3; i++) { const k = (t * 0.9 + i * 0.37) % 1; c.fillStyle = `rgba(255,200,90,${1 - k})`; circ(c, -4 + Math.sin(i * 3 + t * 2) * 7, -14 - k * 22, 1.6); c.fill(); }
+  flag(c, -20, -45, owner, t);
+}
+
+export interface BuildingLook { raise?: number; flagOwner?: number; aim?: number; tension?: number; low?: boolean; cacheScale?: number }
+const ALL = 0, STATIC = 1, DYNAMIC = 2;
+let pass = ALL;
+// The unchanging part of each building (walls, roof, ring, shadows) is painted once per type/level/owner and reused;
+// only flags, the tower head, fire and smoke are drawn every frame.
+const bodyCache = new Map<string, HTMLCanvasElement>();
+const BOX = { w: 250, h: 280, cx: 125, cy: 222 };
+export function clearBuildingCache(): void { bodyCache.clear(); }
+function body(c: Ctx, type: BuildingType, level: number, owner: number, t: number, low: boolean) {
+  shadow(c, 9, 5, 58, 19, 0.2);                 // soft cast shadow
+  if (!low) shadow(c, 0, 2, 44, 13, 0.3);       // tight contact shadow: the building sits on the ground
   baseRing(c, owner);
   if (type === 'farm') farm(c, level, owner, t); else if (type === 'tower') tower(c, level, owner, t); else forge(c, owner, t);
 }
-export const buildingTop = (type: BuildingType, level: number) => (type === 'farm' ? 80 + level * 12 : type === 'tower' ? 80 + level * 9 : 62);
+export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: number, t: number, look: BuildingLook = {}) {
+  flagRaise = look.raise ?? 1; flagOwner = look.flagOwner ?? owner; towerAim = look.aim ?? 0; towerTension = look.tension ?? 0;
+  const S = look.cacheScale ?? 0;
+  if (!S) { pass = ALL; body(c, type, level, owner, t, !!look.low); return; }
+  const key = `${type}${level}_${owner}_${look.low ? 1 : 0}_${S}`;
+  let img = bodyCache.get(key);
+  if (!img) {
+    img = document.createElement('canvas'); img.width = Math.ceil(BOX.w * S); img.height = Math.ceil(BOX.h * S);
+    const cc = img.getContext('2d')!; cc.scale(S, S); cc.translate(BOX.cx, BOX.cy);
+    pass = STATIC; body(cc, type, level, owner, 0, !!look.low);
+    bodyCache.set(key, img);
+  }
+  c.drawImage(img, -BOX.cx, -BOX.cy, BOX.w, BOX.h);
+  pass = DYNAMIC;
+  if (type === 'farm') farm(c, level, owner, t); else if (type === 'tower') tower(c, level, owner, t); else forge(c, owner, t);
+  pass = ALL;
+}
+export const buildingTop = (type: BuildingType, level: number) => (type === 'farm' ? 96 + level * 5 + (level >= 4 ? 14 : 0) : type === 'tower' ? 112 + level * 9 : 82);
 
 export const SOLDIER = { w: 34, h: 42, run: 4, attack: 2 };
 export interface SoldierSheet { run: HTMLCanvasElement[]; attack: HTMLCanvasElement[]; hit: HTMLCanvasElement; fall: HTMLCanvasElement }
@@ -151,7 +270,7 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
   const draw = (team: number, leg: number, bob: number, thrust: number, dazed = false): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(SOLDIER.w * scale); cv.height = Math.ceil(SOLDIER.h * scale);
     const c = cv.getContext('2d')!; c.scale(scale, scale); c.lineJoin = 'round'; c.lineCap = 'round';
-    const col = TEAM[team], dark = TEAM_DARK[team], y = bob;
+    const col = team < 4 ? TEAM[team] : NEUTRAL, dark = team < 4 ? TEAM_DARK[team] : NEUTRAL_DARK, y = bob;
     // legs
     c.strokeStyle = '#3f6b2c'; c.lineWidth = 3.4;
     c.beginPath(); c.moveTo(13, 30 + y); c.lineTo(13 - leg * 3.5, 39); c.moveTo(19, 30 + y); c.lineTo(19 + leg * 3.5, 39); c.stroke();
@@ -166,9 +285,11 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.fillStyle = '#dfe8b4'; c.strokeStyle = '#7d8f4f'; c.lineWidth = 1.2;
     c.beginPath(); c.roundRect(10, 17 + y, 12, 15, 5); c.fill(); c.stroke();
     c.fillStyle = col; c.strokeStyle = dark; c.beginPath(); c.roundRect(9.5, 23 + y, 13, 8.5, 3); c.fill(); c.stroke();
-    // shield with the team shape
-    c.fillStyle = dark; circ(c, 9, 26 + y, 6.2); c.fill(); c.fillStyle = col; circ(c, 9, 26 + y, 4.9); c.fill();
-    emblemShape(c, 9, 26 + y, 2.6, team, '#fff');
+    // leaf shield with the team shape
+    c.fillStyle = dark; c.beginPath(); c.moveTo(9, 18.5 + y); c.quadraticCurveTo(17, 25 + y, 9, 34 + y); c.quadraticCurveTo(1, 25 + y, 9, 18.5 + y); c.fill();
+    c.fillStyle = col; c.beginPath(); c.moveTo(9, 20 + y); c.quadraticCurveTo(15.3, 25.5 + y, 9, 32.5 + y); c.quadraticCurveTo(2.7, 25.5 + y, 9, 20 + y); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(9, 21 + y); c.lineTo(9, 31.5 + y); c.stroke();
+    emblemShape(c, 9, 26 + y, 2.3, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
     // face
     if (dazed) {   // knocked silly: crossed eyes, no blood
       c.strokeStyle = '#16210f'; c.lineWidth = 1.3;
@@ -192,7 +313,8 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.translate(4, 27); c.rotate(-Math.PI / 2 * 0.94); c.drawImage(src, -6, 0, SOLDIER.w, SOLDIER.h);
     return cv;
   };
-  return TEAM.map((_, i) => {
+  // sheets 0-3 are the teams, sheet 4 is the neutral (stone) garrison
+  return [0, 1, 2, 3, 4].map(i => {
     const hit = draw(i, 0.9, 1.5, -0.8, true);
     return {
       run: [draw(i, 1, 0, 0), draw(i, 0.2, -1.5, 0), draw(i, -1, 0, 0), draw(i, -0.2, -1.5, 0)],
@@ -204,37 +326,51 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
 
 export function drawPond(c: Ctx, x: number, y: number, r: number) {
   const py = y * TILT, ry = r * TILT;
-  c.fillStyle = '#d8c98b'; ell(c, x, py, r + 9, ry + 7); c.fill();
-  c.fillStyle = '#2f86c9'; ell(c, x, py, r, ry); c.fill();
-  c.fillStyle = '#58b3ec'; ell(c, x - 3, py - 3, r - 7, ry - 6); c.fill();
-  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2.5; c.lineCap = 'round';
-  c.beginPath(); c.ellipse(x - r * 0.25, py - ry * 0.25, r * 0.4, ry * 0.3, 0, Math.PI * 1.05, Math.PI * 1.5); c.stroke();
-  c.beginPath(); c.ellipse(x + r * 0.2, py + ry * 0.3, r * 0.3, ry * 0.2, 0, 0.1, 1.2); c.stroke();
-  c.fillStyle = '#3f9e4a'; ell(c, x + r * 0.45, py - ry * 0.1, 9, 5.5); c.fill();
-  c.fillStyle = '#ff9ec4'; circ(c, x + r * 0.45, py - ry * 0.1 - 2, 2.6); c.fill();
+  c.fillStyle = 'rgba(70,58,30,.28)'; ell(c, x + 2, py + 5, r + 13, ry + 10); c.fill();          // damp earth
+  c.fillStyle = '#d9c992'; ell(c, x, py, r + 10, ry + 8); c.fill();                              // sandy bank
+  c.fillStyle = '#c2b077'; ell(c, x, py + 1.5, r + 4, ry + 3.5); c.fill();                       // wet edge
+  const g = c.createRadialGradient(x, py, r * 0.15, x, py, r);
+  g.addColorStop(0, '#2f7fb3'); g.addColorStop(0.7, '#4ea5cf'); g.addColorStop(1, 'rgba(150,222,226,.85)');   // shallow, clearer rim
+  c.save(); c.translate(x, py); c.scale(1, TILT); c.translate(-x, -py);
+  c.fillStyle = g; circ(c, x, py, r); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.6; ell(c, x, py, r - 1.5, ry - 1.5); c.stroke();
+  // reeds and a lily pad on the bank
+  c.strokeStyle = '#4f8a3a'; c.lineWidth = 2; c.lineCap = 'round';
+  for (const [dx, hh] of [[-r * 0.86, 15], [-r * 0.74, 21], [-r * 0.62, 13], [r * 0.8, 17], [r * 0.9, 11]] as const) {
+    c.beginPath(); c.moveTo(x + dx, py + ry * 0.45); c.quadraticCurveTo(x + dx + 3, py + ry * 0.45 - hh * 0.6, x + dx + 1, py + ry * 0.45 - hh); c.stroke();
+  }
+  c.fillStyle = '#4c9e4a'; ell(c, x + r * 0.42, py - ry * 0.12, 9, 5.5); c.fill();
+  c.fillStyle = '#ff9ec4'; circ(c, x + r * 0.42, py - ry * 0.12 - 2, 2.6); c.fill();
 }
 
 export function drawRock(c: Ctx, x: number, y: number, r: number) {
   const py = y * TILT;
-  shadow(c, x + 5, py + r * 0.35, r * 1.05, r * 0.4);
-  const blob = (bx: number, by: number, br: number, a: string, b: string) => {
-    c.fillStyle = a; c.beginPath(); c.moveTo(bx - br, by + br * 0.35); c.quadraticCurveTo(bx - br * 0.9, by - br, bx - br * 0.1, by - br * 1.05);
-    c.quadraticCurveTo(bx + br, by - br * 0.9, bx + br, by + br * 0.35); c.closePath(); c.fill();
-    c.fillStyle = b; c.beginPath(); c.moveTo(bx - br * 0.75, by - br * 0.1); c.quadraticCurveTo(bx - br * 0.6, by - br * 0.85, bx - br * 0.05, by - br * 0.9);
-    c.quadraticCurveTo(bx - br * 0.2, by - br * 0.3, bx - br * 0.75, by - br * 0.1); c.fill();
+  shadow(c, x + 6, py + r * 0.36, r * 1.1, r * 0.4, 0.22);
+  shadow(c, x, py + r * 0.32, r * 0.85, r * 0.22, 0.3);
+  const chunk = (bx: number, by: number, br: number) => {
+    c.fillStyle = STONE_D; c.beginPath(); c.moveTo(bx - br, by + br * 0.35); c.lineTo(bx - br * 0.85, by - br * 0.55); c.lineTo(bx - br * 0.2, by - br);
+    c.lineTo(bx + br * 0.55, by - br * 0.8); c.lineTo(bx + br, by - br * 0.1); c.lineTo(bx + br * 0.9, by + br * 0.35); c.closePath(); c.fill();
+    c.fillStyle = STONE; c.beginPath(); c.moveTo(bx - br * 0.8, by + br * 0.2); c.lineTo(bx - br * 0.7, by - br * 0.5); c.lineTo(bx - br * 0.15, by - br * 0.9);
+    c.lineTo(bx + br * 0.45, by - br * 0.7); c.lineTo(bx + br * 0.3, by + br * 0.1); c.closePath(); c.fill();
+    c.strokeStyle = STONE_L; c.lineWidth = 1.8; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(bx - br * 0.7, by - br * 0.5); c.lineTo(bx - br * 0.15, by - br * 0.9); c.lineTo(bx + br * 0.45, by - br * 0.7); c.stroke();
+    c.strokeStyle = 'rgba(60,58,52,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(bx - br * 0.1, by - br * 0.4); c.lineTo(bx + br * 0.1, by + br * 0.05); c.stroke();
   };
-  blob(x + r * 0.35, py + 2, r * 0.6, '#7d8088', '#a4a8b0');
-  blob(x - r * 0.2, py + 4, r * 0.85, '#8b8f97', '#b9bdc4');
-  c.fillStyle = '#4c9a48'; ell(c, x - r * 0.5, py + r * 0.3, r * 0.3, r * 0.12); c.fill();
+  chunk(x + r * 0.4, py + 2, r * 0.6); chunk(x - r * 0.2, py + 4, r * 0.85);
+  c.fillStyle = '#5c9a4a'; ell(c, x - r * 0.55, py + r * 0.3, r * 0.3, r * 0.12); c.fill();
 }
 
 export function drawTree(c: Ctx, x: number, y: number, s: number, dark: boolean) {
-  shadow(c, x + 6 * s, y + 2, 26 * s, 9 * s);
-  c.fillStyle = '#6b4a2b'; c.fillRect(x - 5 * s, y - 30 * s, 10 * s, 32 * s);
-  const cols = dark ? ['#17512a', '#1f6a35', '#2a8242'] : ['#22703a', '#2e8f48', '#44ad58'];
-  c.fillStyle = cols[0]; circ(c, x, y - 50 * s, 30 * s); c.fill();
-  c.fillStyle = cols[1]; circ(c, x - 14 * s, y - 44 * s, 20 * s); c.fill(); circ(c, x + 14 * s, y - 46 * s, 20 * s); c.fill();
-  c.fillStyle = cols[2]; circ(c, x - 6 * s, y - 62 * s, 17 * s); c.fill();
+  shadow(c, x + 8 * s, y + 3, 30 * s, 10 * s, 0.2);
+  shadow(c, x, y + 1, 11 * s, 4 * s, 0.34);                    // contact shadow at the trunk
+  c.fillStyle = '#7a5632'; c.beginPath(); c.moveTo(x - 7 * s, y + 1); c.lineTo(x - 4.5 * s, y - 32 * s); c.lineTo(x + 4.5 * s, y - 32 * s); c.lineTo(x + 7 * s, y + 1); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(60,38,18,.55)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x - 1.5 * s, y - 2); c.lineTo(x - 1 * s, y - 28 * s); c.moveTo(x + 2.5 * s, y - 6); c.lineTo(x + 2 * s, y - 24 * s); c.stroke();
+  const cols = dark ? ['#1d5230', '#2a6b3a', '#3c8448'] : ['#356f3a', '#4b8a47', '#6aa657'];
+  const blob = (bx: number, by: number, r: number, k: number) => {
+    c.fillStyle = cols[k]; circ(c, bx, by, r); c.fill();
+    c.strokeStyle = 'rgba(225,245,180,.38)'; c.lineWidth = 1.5; c.beginPath(); c.arc(bx, by, r - 1, Math.PI * 1.05, Math.PI * 1.55); c.stroke();
+  };
+  blob(x, y - 50 * s, 30 * s, 0); blob(x - 15 * s, y - 44 * s, 20 * s, 1); blob(x + 15 * s, y - 46 * s, 20 * s, 1); blob(x - 6 * s, y - 63 * s, 17 * s, 2);
 }
 
 /** Calm moving water: drifting ripples and a glint, drawn every frame over the painted pond. */

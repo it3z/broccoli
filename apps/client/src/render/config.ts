@@ -12,13 +12,16 @@ export const VIS = {
   unitsPerExtraIcon: 5,     // beyond that: one more sprite per this many units
   maxIcons: 20,
   maxIconsLow: 9,           // reduced-effects mode
-  formationWidth: 5,        // soldiers per rank
-  spacingAcross: 15,
-  spacingAlong: 14,
+  formationWidth: 7,        // most soldiers per rank (groups form two or three ranks)
+  spacingAcross: 19,
+  spacingAlong: 17,
+  exitRankDelay: 0.16,      // seconds between ranks filing out of the door
+  exitWalkSec: 0.4,         // seconds a soldier takes from the door to his place
+  laneOffset: 17,           // sideways spacing between squads on the same road
   // battle staging
-  engageStart: 150,         // distance at which a hostile group starts fanning out around its target
+  engageStart: 175,         // distance at which a hostile group starts fanning out around its target
   engageBlend: 80,
-  battleRadius: 66,
+  battleRadius: 88,
   damageTickSec: 0.45,      // one "-N" number per building per interval
   cheerSec: 1.3,
   unitsPerGuard: 8,

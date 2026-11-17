@@ -1,5 +1,5 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
-import { FALL, SOLDIER, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
+import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 
 export interface DragState { sources: number[]; target: number | null; wx: number; wy: number }
@@ -14,8 +14,8 @@ interface Fallen { x: number; y: number; vx: number; vy: number; rot: number; vr
 interface Cheer { x: number; y: number; owner: number; t: number; phase: number }
 interface Pop { x: number; y: number; t: number; text: string; color: string; size: number }
 interface Ring { x: number; y: number; t: number; color: string }
-interface BView { shake: number; flash: number; kick: number; raise: number; hits: number; hitClock: number; hitColor: string }
-interface AView { ang: number; dust: number; seen: number; hitIdx: number; hitUntil: number }
+interface BView { shake: number; flash: number; kick: number; raise: number; prevOwner: number; aim: number; tension: number; hits: number; hitClock: number; hitColor: string }
+interface AView { ang: number; dust: number; seen: number; hitIdx: number; hitUntil: number; flash: number }
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -31,10 +31,14 @@ export class Renderer {
   private rings: Ring[] = [];
   private bview: BView[] = [];
   private aview = new Map<number, AView>();
+  private innerTrees: { x: number; y: number; s: number; alpha: number }[] = [];
+  private fighters = new Map<number, Army>();
+  private routed: { x: number; y: number; ang: number; t: number; owner: number }[] = [];
   private last = 0;
   private frameNo = 0;
   private low = false;
   scale = 1; ox = 0; oy = 0; dpr = 1;
+  private cacheScale = 1;
   frameMs = 0;          // smoothed frame time, for the perf readout, tests and automatic quality
   drawnSoldiers = 0;    // how many soldier sprites the last frame drew
 
@@ -60,7 +64,8 @@ export class Renderer {
     this.scale = Math.min(s.width / (x1 - x0), s.height / (y1 - y0));
     this.ox = s.left - c.left + (s.width - (x1 - x0) * this.scale) / 2 - x0 * this.scale;
     this.oy = s.top - c.top + (s.height - (y1 - y0) * this.scale) / 2 - y0 * this.scale;
-    this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, hits: 0, hitClock: 0, hitColor: '#fff' });
+    this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, prevOwner: -1, aim: 0, tension: 0, hits: 0, hitClock: 0, hitColor: '#fff' });
+    clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
   }
 
@@ -74,73 +79,108 @@ export class Renderer {
     this.bg.width = this.canvas.width; this.bg.height = this.canvas.height;
     const c = this.bg.getContext('2d')!;
     c.setTransform(1, 0, 0, 1, 0, 0);
+    // matte olive ground, slightly desaturated so the armies stand out
     const g = c.createLinearGradient(0, 0, 0, this.bg.height);
-    g.addColorStop(0, forest ? '#3f8a45' : '#67b34f'); g.addColorStop(1, forest ? '#28633a' : '#4a9a44');
+    g.addColorStop(0, forest ? '#3d7446' : '#5d8f50'); g.addColorStop(1, forest ? '#2b5a3a' : '#467844');
     c.fillStyle = g; c.fillRect(0, 0, this.bg.width, this.bg.height);
     this.world(c);
     const rng = new Rng(map.id.length * 977 + map.buildings.length);
     const W = map.width, H = map.height;
     const X = () => rng.range(-700, W + 700), Y = () => rng.range(-400, H + 400);
     for (let i = 0; i < 170; i++) {
-      c.fillStyle = rng.next() < 0.5 ? 'rgba(255,255,170,.07)' : 'rgba(0,60,20,.08)';
+      c.fillStyle = rng.next() < 0.5 ? 'rgba(235,240,170,.06)' : 'rgba(10,50,25,.09)';
       c.beginPath(); c.ellipse(X(), Y() * TILT, rng.range(40, 150), rng.range(16, 55), 0, 0, 7); c.fill();
     }
-    // terrain layers: the battlefield is a raised meadow with a soft cliff edge, the forest sits on the lower ground
-    const px0 = 55, py0 = 20 * TILT, pw = W - 110, ph = (H - 5) * TILT - py0, rad = 170;
-    c.fillStyle = 'rgba(8,40,18,.30)'; c.beginPath(); c.roundRect(px0 + 6, py0 + 30, pw, ph, rad); c.fill();
-    c.fillStyle = forest ? '#5d6b3c' : '#8c7c46'; c.beginPath(); c.roundRect(px0, py0 + 18, pw, ph, rad); c.fill();
-    c.fillStyle = forest ? '#3d7f42' : '#63b04a'; c.beginPath(); c.roundRect(px0, py0 + 9, pw, ph, rad); c.fill();
+
+    // height layer 1: the battlefield is a raised plateau; its edge drops as an earthen bank with rocks at the foot
+    const px0 = 55, py0 = 20 * TILT, pw = W - 110, ph = (H - 5) * TILT - py0, rad = 170, drop = 24;
+    c.fillStyle = 'rgba(8,30,14,.32)'; c.beginPath(); c.roundRect(px0 + 8, py0 + drop + 14, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#5a4a30' : '#6e5636'; c.beginPath(); c.roundRect(px0, py0 + drop, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.55, pw, ph, rad); c.fill();
+    c.fillStyle = forest ? '#8a7350' : '#a98a5c'; c.beginPath(); c.roundRect(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
-    top.addColorStop(0, forest ? '#5aa752' : '#9ad96a'); top.addColorStop(1, forest ? '#3f8a46' : '#72c257');
+    top.addColorStop(0, forest ? '#5f9a57' : '#96bd6c'); top.addColorStop(1, forest ? '#497f49' : '#80ad60');
     c.fillStyle = top; c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.fill();
-    c.strokeStyle = 'rgba(255,255,220,.35)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
+    c.strokeStyle = 'rgba(250,255,215,.42)'; c.lineWidth = 3; c.beginPath(); c.roundRect(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
+    for (let x = px0 + rad * 0.6; x < px0 + pw - rad * 0.6; x += rng.range(70, 130)) {
+      drawRock(c, x, (py0 + ph + drop + rng.range(-2, 8)) / TILT, rng.range(9, 16));
+    }
+    for (const sx of [px0 - 4, px0 + pw + 4]) for (let i = 0; i < 3; i++) drawRock(c, sx + rng.range(-6, 6), (py0 + ph * (0.45 + i * 0.16)) / TILT, rng.range(8, 13));
     c.save(); c.beginPath(); c.roundRect(px0, py0, pw, ph, rad); c.clip();
-    for (let i = 0; i < 60; i++) {
-      c.fillStyle = rng.next() < 0.5 ? 'rgba(255,255,190,.07)' : 'rgba(0,70,25,.06)';
+    for (let i = 0; i < 70; i++) {
+      c.fillStyle = rng.next() < 0.55 ? 'rgba(250,252,190,.085)' : 'rgba(40,85,30,.06)';
       c.beginPath(); c.ellipse(rng.range(0, W), rng.range(0, H) * TILT, rng.range(60, 170), rng.range(20, 60), 0, 0, 7); c.fill();
     }
     c.restore();
 
-    // worn footpaths between neighbouring buildings: shows where armies will walk
-    c.lineCap = 'round'; c.lineJoin = 'round';
-    for (const [lw, col] of [[30, forest ? 'rgba(70,60,30,.20)' : 'rgba(120,100,50,.20)'], [18, forest ? 'rgba(196,170,110,.30)' : 'rgba(226,204,140,.42)']] as const) {
-      c.strokeStyle = col; c.lineWidth = lw;
-      for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
-        const p = match.paths[i][j]; if (p.len > VIS.roadMaxLen) continue;
-        c.beginPath(); p.pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke();
-      }
-    }
-    // packed-earth clearing under every building, so garrison numbers and fights read against a calm ground
+    // height layer 2: towers and forges stand on a low terrace with its own earthen step
     for (const b of map.buildings) {
-      c.fillStyle = forest ? 'rgba(196,170,110,.42)' : 'rgba(226,204,140,.55)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 92, 50, 0, 0, 7); c.fill();
-      c.fillStyle = forest ? 'rgba(214,190,130,.35)' : 'rgba(240,222,160,.5)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 70, 36, 0, 0, 7); c.fill();
+      if (b.type === 'farm') continue;
+      const y = b.y * TILT + 5;
+      c.fillStyle = 'rgba(20,40,15,.22)'; c.beginPath(); c.ellipse(b.x + 4, y + 15, 112, 58, 0, 0, 7); c.fill();
+      c.fillStyle = forest ? '#766040' : '#93754a'; c.beginPath(); c.ellipse(b.x, y + 9, 108, 56, 0, 0, 7); c.fill();
+      c.fillStyle = forest ? '#6ea660' : '#a6c97a'; c.beginPath(); c.ellipse(b.x, y, 108, 56, 0, 0, 7); c.fill();
+      c.strokeStyle = 'rgba(250,255,215,.45)'; c.lineWidth = 2.5; c.beginPath(); c.ellipse(b.x, y, 105, 53.5, 0, Math.PI, Math.PI * 2); c.stroke();
+    }
+
+    // packed-dirt roads drawn exactly along the routes the armies walk
+    const routes: Vec[][] = [];
+    for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
+      const p = match.paths[i][j]; if (p.len <= VIS.roadMaxLen) routes.push(p.pts);
+    }
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const [lw, col] of [[32, 'rgba(70,52,26,.30)'], [24, forest ? '#b39a66' : '#c9ad74'], [12, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
+      c.strokeStyle = col; c.lineWidth = lw;
+      for (const pts of routes) { c.beginPath(); pts.forEach((q, k) => (k ? c.lineTo(q.x, q.y * TILT) : c.moveTo(q.x, q.y * TILT))); c.stroke(); }
+    }
+    // packed-earth yard under every building, so garrison numbers and fights read against calm ground
+    for (const b of map.buildings) {
+      c.fillStyle = forest ? '#b39a66' : '#c9ad74'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7); c.fill();
+      c.fillStyle = forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 64, 32, 0, 0, 7); c.fill();
     }
     const roads: [Vec, Vec][] = [];
-    for (let i = 0; i < match.paths.length; i++) for (let j = i + 1; j < match.paths.length; j++) {
-      const p = match.paths[i][j]; if (p.len > VIS.roadMaxLen) continue;
-      for (let k = 1; k < p.pts.length; k++) roads.push([p.pts[k - 1], p.pts[k]]);
-    }
-    const nearRoad = (x: number, y: number) => roads.some(([a, b]) => {
+    for (const pts of routes) for (let k = 1; k < pts.length; k++) roads.push([pts[k - 1], pts[k]]);
+    const roadDist = (x: number, y: number) => roads.reduce((best, [a, b]) => {
       const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
-      return Math.hypot(a.x + dx * t - x, a.y + dy * t - y) < 26;
-    });
-    // decoration stays off buildings, obstacles and footpaths
+      return Math.min(best, Math.hypot(a.x + dx * t - x, a.y + dy * t - y));
+    }, 1e9);
+    // a few pebbles along the road shoulders
+    for (const [a, b] of roads) {
+      const len = Math.hypot(b.x - a.x, b.y - a.y), nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
+      for (let d = 30; d < len - 30; d += rng.range(45, 90)) {
+        const s = rng.next() < 0.5 ? 1 : -1, off = rng.range(15, 19) * s, x = a.x + ((b.x - a.x) * d) / len + nx * off, y = a.y + ((b.y - a.y) * d) / len + ny * off;
+        if (map.buildings.some(q => Math.hypot(q.x - x, q.y - y) < 90)) continue;
+        c.fillStyle = '#9a978d'; c.beginPath(); c.ellipse(x, y * TILT, 3.4, 2.4, 0, 0, 7); c.fill();
+        c.fillStyle = '#cfccc2'; c.beginPath(); c.ellipse(x - 0.8, y * TILT - 0.8, 1.8, 1.1, 0, 0, 7); c.fill();
+      }
+    }
+    // decoration stays off buildings, obstacles and roads; it is sparse in the middle and richer toward the edges
     const blocked = (x: number, y: number, pad: number) =>
-      map.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + pad) || map.buildings.some(b => Math.hypot(b.x - x, b.y - y) < 96 + pad) || nearRoad(x, y);
-    for (let i = 0; i < 520; i++) {
-      const x = X(), y = Y(); if (blocked(x, y, 6)) continue;
-      c.strokeStyle = rng.next() < 0.5 ? 'rgba(20,90,35,.5)' : 'rgba(190,235,130,.5)'; c.lineWidth = 2;
+      map.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + pad) || map.buildings.some(b => Math.hypot(b.x - x, b.y - y) < 100 + pad) || roadDist(x, y) < 28;
+    const onPlateau = (x: number, y: number) => x > px0 + 30 && x < px0 + pw - 30 && y * TILT > py0 + 20 && y * TILT < py0 + ph - 20;
+    const edge = (x: number, y: number) => !onPlateau(x, y) || Math.min(x - px0, px0 + pw - x, y * TILT - py0, py0 + ph - y * TILT) < 95;
+    for (let i = 0; i < 620; i++) {
+      const x = X(), y = Y(); if (blocked(x, y, 6) || (!edge(x, y) && rng.next() > 0.22)) continue;
+      c.strokeStyle = rng.next() < 0.5 ? 'rgba(45,95,40,.5)' : 'rgba(205,230,140,.5)'; c.lineWidth = 2;
       c.beginPath(); c.moveTo(x - 4, y * TILT); c.lineTo(x - 6, y * TILT - 8); c.moveTo(x, y * TILT); c.lineTo(x, y * TILT - 11); c.moveTo(x + 4, y * TILT); c.lineTo(x + 7, y * TILT - 7); c.stroke();
     }
     const petals = forest ? ['#f4e9ff', '#ffd66b', '#ff9a6b'] : ['#ffffff', '#ffe36b', '#ff9ec4'];
-    for (let i = 0; i < 150; i++) {
-      const x = X(), y = Y(); if (blocked(x, y, 4)) continue;
+    for (let i = 0; i < 190; i++) {
+      const x = X(), y = Y(); if (blocked(x, y, 4) || (!edge(x, y) && rng.next() > 0.18)) continue;
       c.fillStyle = petals[rng.int(3)];
       for (let k = 0; k < 5; k++) { c.beginPath(); c.arc(x + Math.cos(k * 1.257) * 3.2, y * TILT + Math.sin(k * 1.257) * 2.6, 2.3, 0, 7); c.fill(); }
       c.fillStyle = '#e8a52a'; c.beginPath(); c.arc(x, y * TILT, 1.8, 0, 7); c.fill();
     }
     for (const o of map.obstacles) if (o.kind === 'pond') drawPond(c, o.x, o.y, o.r);
     for (const o of map.obstacles) if (o.kind !== 'pond') drawRock(c, o.x, o.y, o.r);
+    // a few trees stand on the plateau itself; they are drawn live so they can fade when a squad walks behind them
+    this.innerTrees = [];
+    for (let i = 0; i < 400 && this.innerTrees.length < 9; i++) {
+      const x = rng.range(px0 + 60, px0 + pw - 60), y = rng.range(60, H - 40);
+      if (!onPlateau(x, y) || !edge(x, y) || roadDist(x, y) < 75 || map.buildings.some(b => Math.hypot(b.x - x, b.y - y) < 170)
+        || map.obstacles.some(o => Math.hypot(o.x - x, o.y - y) < o.r + 70) || this.innerTrees.some(q => Math.hypot(q.x - x, q.y - y) < 150)) continue;
+      this.innerTrees.push({ x, y, s: rng.range(0.85, 1.15), alpha: 1 });
+    }
     const trees: [number, number, number][] = [];
     for (let i = 0; i < (forest ? 260 : 150); i++) {
       const x = X(), y = Y();
@@ -168,7 +208,8 @@ export class Renderer {
         const av = this.aview.get(e.army); if (av) { av.hitIdx = v.hits; av.hitUntil = performance.now() + 170; }
       } else if (e.type === 'building_captured') {
         const b = match.buildings[e.building], y = b.y * TILT;
-        this.bview[e.building].flash = 1; this.bview[e.building].raise = 0;   // the new flag climbs the pole
+        const bv = this.bview[e.building]; bv.flash = 1; bv.raise = -1; bv.prevOwner = e.from;   // old flag comes down, the new one climbs
+        if (!this.low) for (let i = 0; i < 2; i++) this.fall(b.x - 14 + i * 26, y + 16, e.from < 0 ? 4 : e.from);
         this.rings.push({ x: b.x, y, t: 0, color: colorOf(e.by) });
         this.burst(b.x, y - 40, colorOf(e.by), this.low ? 10 : 30, 170);
         this.burst(b.x, y - 40, '#ffffff', this.low ? 4 : 12, 100);
@@ -177,10 +218,14 @@ export class Renderer {
       } else if (e.type === 'battle_resolved' && !e.captured && e.survivors === 0) {
         const b = match.buildings[e.building];
         this.rings.push({ x: b.x, y: b.y * TILT, t: 0.35, color: colorOf(b.owner) });
+        // the beaten attack breaks: the last few stumble back the way they came, then drop
+        const av = this.aview.get(e.army), ang = av ? av.ang + Math.PI : 0;
+        for (let i = 0; i < (this.low ? 1 : 3); i++) this.routed.push({ x: b.x + Math.cos(ang) * 66 + (i - 1) * 16, y: b.y + Math.sin(ang) * 52 + (i % 2) * 10, ang, t: -i * 0.08, owner: e.attacker });
       } else if (e.type === 'tower_fired') {
         this.bview[e.tower].kick = 1;
       } else if (e.type === 'projectile_hit') {
         this.burst(e.x, e.y * TILT - 14, '#f4ecc4', this.low ? 2 : 6, 80);
+        const hv = this.aview.get(e.army); if (hv) hv.flash = 1;   // the squad's counter flashes on the very tick it loses a unit
         this.fall(e.x, e.y * TILT, e.victim);
       } else if (e.type === 'clash_started') {
         this.rings.push({ x: e.x, y: e.y * TILT, t: 0.3, color: '#fff6c2' });
@@ -262,14 +307,15 @@ export class Renderer {
     if (f.drag) this.drawOrderPaths(c, f);
 
     // depth-sorted scene: buildings, soldiers, cheering captors
-    type Item = { y: number; kind: 0 | 1 | 2; ref: number; x: number; frame: HTMLCanvasElement | null; flip: boolean; hop: number };
+    type Item = { y: number; kind: 0 | 1 | 2 | 3 | 4; ref: number; x: number; frame: HTMLCanvasElement | null; flip: boolean; hop: number };
     const items: Item[] = [];
     for (const b of m.buildings) items.push({ y: b.y, kind: 0, ref: b.id, x: b.x, frame: null, flip: false, hop: 0 });
     const badges: { x: number; y: number; a: Army }[] = [];
     let soldiers = 0;
+    const atTarget = new Map<number, number>();
     for (const a of m.armies) {
       const sheet = this.sheets[a.owner % 4], target = m.buildings[a.to];
-      const ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
+      let ax = a.px + (a.x - a.px) * f.alpha, ay = a.py + (a.y - a.py) * f.alpha;
       let v = this.aview.get(a.id);
       const path = m.paths[a.from][a.to].pts;
       let dx = a.x - a.px, dy = a.y - a.py;
@@ -277,26 +323,39 @@ export class Renderer {
       const foe = a.state === 'clashing' ? m.armies.find(x => x.id === a.foe) : undefined;
       if (foe) { dx = foe.x - a.x; dy = foe.y - a.y; }             // in a road clash the group turns to face its opponent
       const want = Math.atan2(dy, dx);
-      if (!v) { v = { ang: want, dust: 0, seen: 0, hitIdx: 0, hitUntil: 0 }; this.aview.set(a.id, v); }
+      if (!v) { v = { ang: want, dust: 0, seen: 0, hitIdx: 0, hitUntil: 0, flash: 0 }; this.aview.set(a.id, v); }
       let d = want - v.ang; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
       v.ang += d * Math.min(1, dt * 9); v.seen = this.frameNo;
       const cos = Math.cos(v.ang), sin = Math.sin(v.ang);
+      // squads sharing a road keep to their own lane, so synchronized groups read as separate units (drawing only)
+      const lane = (((a.id * 7) % 3) - 1) * VIS.laneOffset * Math.min(1, a.dist / 70, (m.paths[a.from][a.to].len - a.dist) / 70);
+      ax -= sin * lane; ay += cos * lane;
       const hostile = !m.sameTeam(a.owner, target.owner);
       const toTarget = Math.hypot(target.x - ax, target.y - ay);
       // blend from marching block to a battle arc around the target as the group closes in
       const blend = a.state === 'fighting' ? 1 : hostile ? Math.max(0, Math.min(1, (VIS.engageStart - toTarget) / VIS.engageBlend)) : 0;
-      const n = this.icons(a.units), per = VIS.formationWidth;
+      const n = this.icons(a.units);
+      // two or three ranks; the block narrows and stretches where the road squeezes past a pond or rock
+      let gap = 1e9; for (const o of m.map.obstacles) gap = Math.min(gap, Math.hypot(o.x - ax, o.y - ay) - o.r);
+      const squeeze = Math.max(0.55, Math.min(1, (gap - 22) / 70));
+      const per = Math.max(2, Math.round(Math.max(3, Math.min(VIS.formationWidth, Math.ceil(n / 3))) * (squeeze < 0.8 ? 0.6 : 1)));
+      // soldiers file out of the door rank by rank instead of appearing as a block
+      const age = (m.tick + f.alpha - a.createdTick) / m.bal.tickRate, home = m.buildings[a.from];
+      if (!this.fighters.has(a.to) && a.state === 'fighting') this.fighters.set(a.to, a);
       const n2 = path.length, inAng = Math.atan2(path[n2 - 2].y - path[n2 - 1].y, path[n2 - 2].x - path[n2 - 1].x);
       for (let k = 0; k < n; k++) {
         const row = Math.floor(k / per), cols = Math.min(per, n - row * per);
-        const across = ((k % per) - (cols - 1) / 2) * VIS.spacingAcross * ss, along = -row * VIS.spacingAlong * ss;
+        const out = (age - row * VIS.exitRankDelay) / VIS.exitWalkSec;
+        if (out <= 0) continue;                                    // this rank is still inside the building
+        const across = ((k % per) - (cols - 1) / 2) * VIS.spacingAcross * ss * squeeze, along = -row * VIS.spacingAlong * ss * (2 - squeeze);
         let x = ax + cos * along - sin * across, y = ay + sin * along + cos * across;
+        if (out < 1) { const e = out * out * (3 - 2 * out); x = home.x + (x - home.x) * e; y = home.y + 12 + (y - home.y - 12) * e; }
         let frame = sheet.run[(Math.floor(t * 10 + k * 1.3 + a.id) % 4 + 4) % 4], hop = 0, flip = cos < -0.05;
         if (blend > 0) {
           const ring = Math.floor(k / 7), slot = k % 7, inRing = Math.min(7, n - ring * 7);
           const ang = inAng + (slot - (inRing - 1) / 2) * 0.42;
           const lunge = a.state === 'fighting' ? Math.max(0, Math.sin(t * 9 + k * 1.9)) * 9 : 0;
-          const rad = VIS.battleRadius + ring * 17 * ss - lunge;
+          const rad = VIS.battleRadius + ring * 19 * ss - lunge;
           const bx = target.x + Math.cos(ang) * rad, by = target.y + Math.sin(ang) * rad * 0.8;
           x += (bx - x) * blend; y += (by - y) * blend;
           if (a.state === 'fighting') { frame = sheet.attack[Math.sin(t * 9 + k * 1.9) > 0.3 ? 1 : 0]; flip = target.x < x; }
@@ -313,13 +372,36 @@ export class Renderer {
         v.dust = 0; const p = this.pool[this.cursor]; this.cursor = (this.cursor + 1) % this.pool.length;
         p.on = true; p.x = ax - cos * 14; p.y = ay * TILT - 2; p.vx = -cos * 12; p.vy = -14; p.g = 0; p.life = 0; p.max = 0.55; p.size = 6; p.color = 'rgba(235,225,180,.55)';
       }
-      const lift = blend > 0.5 ? target.x + (ax - target.x) * 0 : ax;
-      badges.push({ x: blend > 0.5 ? lift + Math.cos(inAng) * (VIS.battleRadius + 30) : ax, y: blend > 0.5 ? target.y + Math.sin(inAng) * (VIS.battleRadius + 30) * 0.8 : ay, a });
+      // counters of several squads at one target are stacked instead of piled on each other
+      const nth = blend > 0.5 ? (atTarget.get(a.to) ?? 0) : 0; if (blend > 0.5) atTarget.set(a.to, nth + 1);
+      badges.push({ x: blend > 0.5 ? target.x + Math.cos(inAng) * (VIS.battleRadius + 34) : ax, y: blend > 0.5 ? target.y + Math.sin(inAng) * (VIS.battleRadius + 34) * 0.8 - nth * 42 : ay, a });
     }
     this.drawnSoldiers = soldiers;
     if (this.frameNo % 120 === 0) for (const [id, v] of this.aview) if (v.seen < this.frameNo - 2) this.aview.delete(id);
     for (const ch of this.cheers) { ch.t += dt; items.push({ y: ch.y, kind: 2, ref: ch.owner, x: ch.x, frame: this.sheets[ch.owner % 4].run[0], flip: false, hop: Math.abs(Math.sin(ch.t * 9 + ch.phase)) * 16 }); }
     this.cheers = this.cheers.filter(ch => ch.t < VIS.cheerSec);
+    // defenders step out to the gate while their building is under attack, facing the attackers
+    for (const [bid, a] of this.fighters) {
+      const b = m.buildings[bid], sheet = this.sheets[b.owner < 0 ? 4 : b.owner % 4];
+      const path = m.paths[a.from][a.to].pts, n2 = path.length;
+      const ang = Math.atan2(path[n2 - 2].y - path[n2 - 1].y, path[n2 - 2].x - path[n2 - 1].x);
+      const count = Math.min(this.low ? 1 : 3, Math.ceil(b.garrison / 6));
+      for (let i = 0; i < count; i++) {
+        const side = (i - (count - 1) / 2) * 0.5, lunge = Math.max(0, Math.sin(t * 9 + i * 2.3 + 1.5)) * 7;
+        const x = b.x + Math.cos(ang + side) * (34 + lunge), y = b.y + Math.sin(ang + side) * (34 + lunge) * 0.8;
+        items.push({ y, kind: 1, ref: b.owner, x, frame: sheet.attack[Math.sin(t * 9 + i * 2.3 + 1.5) > 0.3 ? 1 : 0], flip: Math.cos(ang) < 0, hop: 0 });
+        soldiers++;
+      }
+    }
+    this.fighters.clear();
+    for (const r of this.routed) {
+      r.t += dt; if (r.t < 0) continue;
+      const sheet = this.sheets[r.owner % 4];
+      if (r.t < 0.55) { r.x += Math.cos(r.ang) * 120 * dt; r.y += Math.sin(r.ang) * 120 * dt; items.push({ y: r.y, kind: 1, ref: r.owner, x: r.x, frame: r.t > 0.4 ? sheet.hit : sheet.run[Math.floor(r.t * 14) % 4], flip: Math.cos(r.ang) < 0, hop: 0 }); }
+      else items.push({ y: r.y, kind: 4, ref: r.owner, x: r.x, frame: sheet.fall, flip: false, hop: Math.max(0, Math.min(1, (1.3 - r.t) / 0.4)) });
+    }
+    this.routed = this.routed.filter(r => r.t < 1.3);
+    this.innerTrees.forEach((tr, i) => items.push({ y: tr.y, kind: 3, ref: i, x: tr.x, frame: null, flip: false, hop: 0 }));
     items.sort((p, q) => p.y - q.y);
 
     const sw = SOLDIER.w * ss, sh = SOLDIER.h * ss;
@@ -327,18 +409,29 @@ export class Renderer {
       if (it.kind === 0) {
         const b = m.buildings[it.ref], v = this.bview[it.ref];
         v.shake = Math.max(0, v.shake - dt); v.flash = Math.max(0, v.flash - dt / 0.45); v.kick = Math.max(0, v.kick - dt / 0.22);
-        v.raise = Math.min(1, v.raise + dt / 0.7);
+        v.raise = Math.min(1, v.raise + dt / 0.42);          // -1..0 old flag down, 0..1 new flag up
+        if (b.type === 'tower') this.aimTower(m, b, v, dt);
         c.save();
         c.translate(b.x + (v.shake > 0 ? Math.sin(t * 90) * 2.5 : 0), b.y * TILT);
         if (v.kick > 0) c.scale(1 + v.kick * 0.05, 1 - v.kick * 0.07);
         if (b.busyKind) c.globalAlpha = 0.72 + 0.2 * Math.sin(t * 9);
-        drawBuilding(c, b.type, b.level, b.owner, t, v.raise);
-        if (v.flash > 0) { c.globalAlpha = v.flash * 0.75; c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0, -40, 58, 62, 0, 0, 7); c.fill(); }
+        drawBuilding(c, b.type, b.level, b.owner, t, { raise: Math.abs(v.raise), flagOwner: v.raise < 0 ? v.prevOwner : b.owner, aim: v.aim, tension: v.tension, low: this.low, cacheScale: this.cacheScale });
+        if (v.flash > 0) { c.globalAlpha = v.flash * 0.4; c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0, -34, 50, 46, 0, 0, 7); c.fill(); }
         c.restore();
         if (b.owner >= 0 && !this.low) this.guards(c, b, t, ss);
+      } else if (it.kind === 3) {
+        // a tree on the plateau: fades while a squad is behind its crown
+        const tr = this.innerTrees[it.ref];
+        let hide = false;
+        for (const a of m.armies) { if (Math.abs(a.x - tr.x) < 46 * tr.s && a.y < tr.y + 6 && tr.y - a.y < 105 * tr.s) { hide = true; break; } }
+        tr.alpha += ((hide ? 0.3 : 1) - tr.alpha) * Math.min(1, dt * 8);
+        c.globalAlpha = tr.alpha; drawTree(c, tr.x, tr.y * TILT, tr.s, m.map.biome === 'forest'); c.globalAlpha = 1;
+      } else if (it.kind === 4) {
+        const py = it.y * TILT;   // a routed soldier lying where he dropped
+        c.globalAlpha = it.hop; c.drawImage(it.frame!, it.x - FALL.w * ss * 0.45, py - FALL.h * ss * 0.7, FALL.w * ss * 0.9, FALL.h * ss * 0.9); c.globalAlpha = 1;
       } else {
         const py = it.y * TILT;
-        shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.26);
+        if (!this.low) shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.26);
         if (it.flip) { c.save(); c.translate(it.x, 0); c.scale(-1, 1); c.drawImage(it.frame!, -sw / 2, py - sh + 4 * ss - it.hop, sw, sh); c.restore(); }
         else c.drawImage(it.frame!, it.x - sw / 2, py - sh + 4 * ss - it.hop, sw, sh);
       }
@@ -391,6 +484,22 @@ export class Renderer {
       c.fillRect(x, y, Math.abs(f.box.x1 - f.box.x0), Math.abs(f.box.y1 - f.box.y0));
       c.strokeRect(x, y, Math.abs(f.box.x1 - f.box.x0), Math.abs(f.box.y1 - f.box.y0)); c.setLineDash([]);
     }
+  }
+
+  /** Tower head: turn toward the nearest hostile squad in range and draw back as the next shot comes due. */
+  private aimTower(m: Match, b: Building, v: BView, dt: number): void {
+    let best: Army | null = null, bd = m.towerRange(b) ** 2;
+    if (b.owner >= 0) for (const a of m.armies) {
+      if (m.sameTeam(a.owner, b.owner)) continue;
+      const d2 = (a.x - b.x) ** 2 + (a.y - b.y) ** 2; if (d2 <= bd) { bd = d2; best = a; }
+    }
+    if (best) {
+      const want = Math.atan2((best.y - b.y) * TILT, best.x - b.x);
+      let d = want - v.aim; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      v.aim += d * Math.min(1, dt * 10);
+      const every = Math.max(1, Math.round(m.bal.tower.levels[b.level - 1].fireIntervalSec * m.bal.tickRate));
+      v.tension = Math.max(0, Math.min(1, 1 - b.cooldown / every)) * (1 - v.kick);
+    } else { v.tension = Math.max(0, v.tension - dt * 3); v.aim += Math.sin(performance.now() / 1300 + b.id) * dt * 0.25; }   // idle scan
   }
 
   /** One or two idle soldiers stand guard at an owned building. */
@@ -461,7 +570,9 @@ export class Renderer {
     const afs = Math.max(21, VIS.badgeMinPx / this.scale);
     c.font = `800 ${afs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
     for (const g of badges) {
-      this.pill(c, g.x, g.y * TILT - SOLDIER.h * ss - afs * 0.55, String(g.a.units), afs, colorOf(g.a.owner), '#fff', g.a.owner);
+      const hv = this.aview.get(g.a.id), fl = hv ? hv.flash : 0;
+      if (hv && fl > 0) hv.flash = Math.max(0, fl - dt / 0.25);
+      this.pill(c, g.x, g.y * TILT - SOLDIER.h * ss - afs * (0.55 + fl * 0.25), String(g.a.units), afs * (1 + fl * 0.18), fl > 0.5 ? '#fff' : colorOf(g.a.owner), '#fff', g.a.owner, fl > 0.5 ? '#7a1d12' : '#fff');
     }
     for (const p of this.pops) {
       p.t += dt;

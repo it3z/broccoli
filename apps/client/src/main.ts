@@ -1,7 +1,9 @@
 import { MAPS, type Difficulty, type Match } from '../../../packages/simulation/src/index';
 import { Session, type SessionOpts } from './game';
 import { colorOf } from './render/art';
-import { setMusic, setSound, sfx, unlockAudio } from './audio/sfx';
+import { setAmbience, setMusic, setSound, sfx, unlockAudio } from './audio/sfx';
+
+declare const __BUILD__: string;
 import { getLang, setLang, t, type Lang } from './ui/i18n';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -14,6 +16,7 @@ let session: Session | null = null;
 let soundOn = store.get('sound', '1') === '1';
 let musicOn = store.get('music', '1') === '1';
 let lowFx = store.get('fx', 'high') === 'low';
+let ambOn = store.get('amb', '1') === '1';
 let howFromPause = false;
 let flipHud = store.get('side', 'left') === 'right';
 let roadClash = false;
@@ -77,6 +80,8 @@ function renderSettings(): void {
     v => { soundOn = v === '1'; setSound(soundOn); store.set('sound', v); renderSettings(); });
   seg($('segMusic'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], musicOn ? '1' : '0',
     v => { musicOn = v === '1'; setMusic(musicOn); store.set('music', v); renderSettings(); });
+  seg($('segAmb'), [{ v: '1', label: t('on') }, { v: '0', label: t('off') }], ambOn ? '1' : '0',
+    v => { ambOn = v === '1'; setAmbience(ambOn); store.set('amb', v); renderSettings(); });
   seg($('segFx'), [{ v: 'high', label: t('fxHigh') }, { v: 'low', label: t('fxLow') }], lowFx ? 'low' : 'high',
     v => { lowFx = v === 'low'; store.set('fx', v); renderSettings(); });
   seg($('segSide'), [{ v: 'left', label: t('left') }, { v: 'right', label: t('right') }], flipHud ? 'right' : 'left',
@@ -130,7 +135,9 @@ function toMenu(): void {
 
 function init(): void {
   setLang(store.get('lang', 'ar') as Lang);
-  setSound(soundOn); setMusic(musicOn);
+  setSound(soundOn); setMusic(musicOn); setAmbience(ambOn);
+  document.querySelectorAll<HTMLElement>('.build').forEach(el => (el.textContent = __BUILD__));
+  (window as unknown as { __broccoliBuild: string }).__broccoliBuild = __BUILD__;
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
   document.addEventListener('click', unlockAudio);
   // iOS Safari: stop pinch-zoom and double-tap zoom from hijacking the battlefield

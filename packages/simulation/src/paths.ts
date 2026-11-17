@@ -5,6 +5,8 @@ export interface Path { pts: Vec[]; cum: number[]; len: number }
 const CLEAR = 10;   // min distance kept from an obstacle edge
 const RING = 26;    // detour ring distance from an obstacle edge
 const RING_PTS = 10;
+const B_CLEAR = 62;  // routes keep this far from the centre of any building they are not going to or from
+const B_RING = 80;   // detour ring radius around a building
 
 export function segHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -15,8 +17,13 @@ export function segHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
   return px * px + py * py < r * r;
 }
 
-function clear(a: Vec, b: Vec, map: MapDef): boolean {
+function clear(a: Vec, b: Vec, map: MapDef, i: number, j: number): boolean {
   for (const o of map.obstacles) if (segHitsCircle(a, b, o, o.r + CLEAR)) return false;
+  // a route never cuts through a third building: squads walk around it
+  for (let k = 0; k < map.buildings.length; k++) {
+    if (k === i || k === j) continue;
+    if (segHitsCircle(a, b, map.buildings[k], B_CLEAR)) return false;
+  }
   return true;
 }
 
@@ -39,13 +46,23 @@ export function buildPaths(map: MapDef): Path[][] {
       nodes.push(p);
     }
   }
+  for (const q of map.buildings) {
+    for (let i = 0; i < RING_PTS; i++) {
+      const a = ((i + 0.5) / RING_PTS) * Math.PI * 2;
+      const p = { x: q.x + Math.cos(a) * B_RING, y: q.y + Math.sin(a) * B_RING };
+      if (p.x < 20 || p.y < 20 || p.x > map.width - 20 || p.y > map.height - 20) continue;
+      if (map.obstacles.some(o => Math.hypot(o.x - p.x, o.y - p.y) < o.r + CLEAR)) continue;
+      if (map.buildings.some(o => o !== q && Math.hypot(o.x - p.x, o.y - p.y) < B_CLEAR)) continue;
+      nodes.push(p);
+    }
+  }
   const m = nodes.length;
   const adj: number[][] = [];
   for (let i = 0; i < m; i++) {
     adj.push(new Array(m).fill(Infinity));
   }
   for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) {
-    if (clear(nodes[i], nodes[j], map)) {
+    if (clear(nodes[i], nodes[j], map, i, j)) {
       adj[i][j] = adj[j][i] = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
     }
   }
