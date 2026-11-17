@@ -139,19 +139,11 @@ export class Renderer {
     // ring road around every junction: squads passing a building walk this loop (radius B_PASS), never through the yard
     const degree = map.buildings.map(() => 0);
     for (const r of routes) for (const [k, b] of map.buildings.entries()) if ([r[0], r[r.length - 1]].some(p => p.x === b.x && p.y === b.y)) degree[k]++;
-    for (const [lw, col] of [[30, 'rgba(70,52,26,.30)'], [22, forest ? '#b39a66' : '#c9ad74'], [10, forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)']] as const) {
+    for (const [lw, col] of [[15, 'rgba(70,52,26,.22)'], [10, forest ? 'rgba(179,154,102,.8)' : 'rgba(201,173,116,.8)']] as const) {   // a narrow worn loop, not a base
       c.strokeStyle = col; c.lineWidth = lw;
       for (const [k, b] of map.buildings.entries()) if (degree[k] >= 2) { c.beginPath(); c.ellipse(b.x, b.y * TILT, match.passR[k], match.passR[k] * TILT, 0, 0, 7); c.stroke(); }
     }
-    // packed-earth yard under every building, so garrison numbers and fights read against calm ground
-    for (const b of map.buildings) {
-      c.fillStyle = forest ? '#b39a66' : '#c9ad74'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7); c.fill();
-      c.fillStyle = forest ? 'rgba(206,184,128,.6)' : 'rgba(226,204,150,.75)'; c.beginPath(); c.ellipse(b.x, b.y * TILT + 4, 64, 32, 0, 0, 7); c.fill();
-    }
-    // packed-dirt grain over every yard
-    c.save(); c.beginPath();
-    for (const b of map.buildings) c.ellipse(b.x, b.y * TILT + 4, 84, 44, 0, 0, 7);
-    c.clip(); c.beginPath(); c.rect(-2000, -2000, W + 4000, H + 4000); texture(c, 'dirt', 0.55, 0.8); c.restore();
+    // (each building brings its own ground: yard, rock outcrop or ash — see art.ts foundation())
     const roads: [Vec, Vec][] = [];
     for (const pts of routes) for (let k = 1; k < pts.length; k++) roads.push([pts[k - 1], pts[k]]);
     const roadDist = (x: number, y: number) => roads.reduce((best, [a, b]) => {
@@ -204,6 +196,29 @@ export class Renderer {
     }
     trees.sort((a, b) => a[1] - b[1]);
     for (const [x, y, s] of trees) drawTree(c, x, y * TILT, s, forest);
+    // side light from the upper left: warm on the lit side, cool in the shade (one light for map and assets)
+    c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'soft-light';
+    const lg = c.createLinearGradient(0, 0, this.bg.width, this.bg.height);
+    lg.addColorStop(0, 'rgba(255,236,170,.55)'); lg.addColorStop(0.5, 'rgba(255,240,200,0)'); lg.addColorStop(1, 'rgba(30,50,80,.45)');
+    c.fillStyle = lg; c.fillRect(0, 0, this.bg.width, this.bg.height); c.restore();
+    // foreground foliage and roots framing the edges, kept off the battlefield
+    this.world(c);
+    const leaf = (x: number, y: number, s2: number, a: number, col: string) => {
+      c.save(); c.translate(x, y * TILT); c.rotate(a); c.scale(s2, s2); c.fillStyle = col;
+      c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(30, -26, 90, -22, 120, 0); c.bezierCurveTo(90, 20, 30, 24, 0, 0); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 2; c.beginPath(); c.moveTo(4, 0); c.lineTo(112, 0); c.stroke(); c.restore();
+    };
+    const fr = new Rng(5);
+    for (let i = 0; i < 26; i++) {
+      const edge = i % 4, t2 = fr.next();
+      const x = edge === 0 ? -60 + fr.range(0, 70) : edge === 1 ? W + 60 - fr.range(0, 70) : t2 * W, y = edge === 2 ? -40 + fr.range(0, 30) : edge === 3 ? H + 40 - fr.range(0, 30) : t2 * H;
+      leaf(x, y, fr.range(0.7, 1.4), fr.range(0, Math.PI * 2), fr.next() < 0.5 ? 'rgba(14,52,28,.85)' : 'rgba(26,74,36,.78)');
+    }
+    c.strokeStyle = 'rgba(70,48,26,.85)'; c.lineCap = 'round';
+    for (let i = 0; i < 8; i++) {                                  // roots creeping in at the bottom corners
+      const sx = i < 4 ? -30 : W + 30, dir = i < 4 ? 1 : -1, y0 = H - 80 + i % 4 * 30;
+      c.lineWidth = 9 - (i % 4) * 1.5; c.beginPath(); c.moveTo(sx, y0 * TILT); c.bezierCurveTo(sx + dir * 60, (y0 - 30) * TILT, sx + dir * 90, (y0 + 20) * TILT, sx + dir * (130 + (i % 4) * 25), (y0 + 50) * TILT); c.stroke();
+    }
     // soft vignette pulls the eye to the battlefield
     c.setTransform(1, 0, 0, 1, 0, 0);
     const v = c.createRadialGradient(this.bg.width / 2, this.bg.height / 2, this.bg.height * 0.45, this.bg.width / 2, this.bg.height / 2, this.bg.width * 0.75);
@@ -369,7 +384,9 @@ export class Renderer {
         const across = ((k % per) - (cols - 1) / 2) * VIS.spacingAcross * ss * squeeze, along = -row * VIS.spacingAlong * ss * (2 - squeeze);
         let x = ax + cos * along - sin * across, y = ay + sin * along + cos * across;
         if (out < 1) { const e = out * out * (3 - 2 * out); x = home.x + (x - home.x) * e; y = home.y + 12 + (y - home.y - 12) * e; }
-        let frame = sheet.run[(Math.floor(t * 10 + k * 1.3 + a.id) % 4 + 4) % 4], hop = 0, flip = cos < -0.05;
+        // four facings: side (flipped for left), toward the camera, away from it
+        const set = sin > 0.62 ? sheet.runF : sin < -0.62 ? sheet.runB : sheet.run;
+        let frame = set[(Math.floor(t * 10 + k * 1.3 + a.id) % 4 + 4) % 4], hop = 0, flip = set === sheet.run && cos < -0.05;
         if (blend > 0) {
           const ring = Math.floor(k / 7), slot = k % 7, inRing = Math.min(7, n - ring * 7);
           const ang = inAng + (slot - (inRing - 1) / 2) * 0.42;
@@ -450,10 +467,7 @@ export class Renderer {
         c.globalAlpha = it.hop; c.drawImage(it.frame!, it.x - FALL.w * ss * 0.45, py - FALL.h * ss * 0.7, FALL.w * ss * 0.9, FALL.h * ss * 0.9); c.globalAlpha = 1;
       } else {
         const py = it.y * TILT;
-        if (!this.low) {   // team-coloured footing under every soldier: ownership reads even where the sprite is small
-          shadow(c, it.x, py + 1, 9 * ss, 3.6 * ss, 0.3);
-          c.fillStyle = colorOf(it.ref); c.globalAlpha = 0.55; c.beginPath(); c.ellipse(it.x, py + 1, 7.5 * ss, 3 * ss, 0, 0, 7); c.fill(); c.globalAlpha = 1;
-        }
+        // contact shadow and team footing are baked into the sprite (art.ts grounded())
         if (it.flip) { c.save(); c.translate(it.x, 0); c.scale(-1, 1); c.drawImage(it.frame!, -sw / 2, py - sh + 4 * ss - it.hop, sw, sh); c.restore(); }
         else c.drawImage(it.frame!, it.x - sw / 2, py - sh + 4 * ss - it.hop, sw, sh);
       }
@@ -608,23 +622,87 @@ export class Renderer {
     this.pops = this.pops.filter(p => p.t < 0.9);
   }
 
-  /** River band with sandy banks; a timber bridge over every gap that has no drawbridge. */
+  /**
+   * Organic river: a smooth channel through the river obstacles (and under the bridges), with damp earth, sandy banks,
+   * light shallows at the edges, a deeper middle, reeds and stones. Fixed crossings get a stone-footed timber bridge.
+   */
   private paintRiver(c: Ctx, m: Match): void {
-    const riv = m.map.obstacles.filter(o => o.kind === 'river').sort((a, b) => a.y - b.y || a.x - b.x);
+    const riv = m.map.obstacles.filter(o => o.kind === 'river').map(o => ({ x: o.x, y: o.y, r: o.r }));
     if (!riv.length) return;
-    const r = riv[0].r, line = () => { c.beginPath(); riv.forEach((o, i) => (i ? c.lineTo(o.x, o.y * TILT) : c.moveTo(o.x, o.y * TILT))); };
-    c.lineCap = 'round'; c.lineJoin = 'round';
-    for (const [w, col] of [[r * 2 + 34, 'rgba(70,58,30,.3)'], [r * 2 + 22, '#d9c992'], [r * 2 + 8, '#c2b077'], [r * 2 - 6, '#4ea5cf'], [r * 0.9, '#3a8fc0']] as const) { c.strokeStyle = col; c.lineWidth = w; line(); c.stroke(); }
-    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.setLineDash([18, 26]); line(); c.stroke(); c.setLineDash([]);
-    const gates = m.map.obstacles.filter(o => o.kind === 'gate');
-    for (let i = 1; i < riv.length; i++) {
-      const a = riv[i - 1], b = riv[i];
-      if (Math.hypot(b.x - a.x, b.y - a.y) < r * 2.6) continue;
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      if (gates.some(g => Math.hypot(g.x - mx, g.y - my) < r)) continue;
-      this.planks(c, mx, my, r * 2.6, 1);
+    for (const br of m.map.bridges ?? []) riv.push({ x: br.x, y: br.y, r: 46 });
+    riv.sort((a, b) => a.y - b.y);
+    // Catmull-Rom through the centres, sampled every few pixels
+    const pts: { x: number; y: number; r: number }[] = [];
+    for (let i = 0; i < riv.length - 1; i++) {
+      const p0 = riv[Math.max(0, i - 1)], p1 = riv[i], p2 = riv[i + 1], p3 = riv[Math.min(riv.length - 1, i + 2)];
+      for (let k = 0; k < 6; k++) {
+        const t = k / 6, t2 = t * t, t3 = t2 * t, f = (a: number, b: number, c2: number, d: number) => 0.5 * (2 * b + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3);
+        pts.push({ x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y), r: p1.r + (p2.r - p1.r) * t });
+      }
     }
+    pts.push(riv[riv.length - 1]);
+    const rng = new Rng(77);
+    const jitter = pts.map(() => [rng.range(-5, 5), rng.range(-5, 5)]);
+    const band = (w: number, j: number) => {   // polygon of the channel widened by w (with a little organic wobble)
+      c.beginPath();
+      pts.forEach((p, i) => { const q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)], dx = q.x - o.x, dy = q.y - o.y, l = Math.hypot(dx, dy) || 1;
+        const x = p.x - (dy / l) * (p.r + w + jitter[i][0] * j), y = p.y + (dx / l) * (p.r + w + jitter[i][0] * j); i ? c.lineTo(x, y * TILT) : c.moveTo(x, y * TILT); });
+      for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i], q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)], dx = q.x - o.x, dy = q.y - o.y, l = Math.hypot(dx, dy) || 1;
+        c.lineTo(p.x + (dy / l) * (p.r + w + jitter[i][1] * j), (p.y - (dx / l) * (p.r + w + jitter[i][1] * j)) * TILT); }
+      c.closePath();
+    };
+    c.fillStyle = 'rgba(60,46,24,.45)'; band(30, 1.4); c.fill();
+    c.fillStyle = '#8b7046'; band(20, 1.2); c.fill(); texture(c, 'dirt', 0.6, 0.8);
+    c.fillStyle = '#cdb67f'; band(11, 1); c.fill(); texture(c, 'dirt', 0.4, 1.2);
+    c.fillStyle = '#a8955f'; band(3, 0.6); c.fill();
+    c.fillStyle = '#9fd8d6'; band(-1, 0.4); c.fill();          // clear shallows
+    c.fillStyle = '#5bb0d4'; band(-11, 0.3); c.fill();
+    c.fillStyle = '#3a8fc0'; band(-24, 0.2); c.fill();          // deep middle
+    c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 2; c.lineCap = 'round';
+    for (let i = 3; i < pts.length - 3; i += 5) { const p = pts[i], q = pts[i + 2]; c.beginPath(); c.moveTo(p.x - 6, p.y * TILT); c.lineTo(q.x - 6, q.y * TILT); c.stroke(); }
+    const bridges = m.map.bridges ?? [];
+    for (let i = 2; i < pts.length - 2; i += 3) {
+      const p = pts[i]; if (bridges.some(b => Math.abs(b.y - p.y) < 75)) continue;
+      const side = i % 2 ? 1 : -1, bx = p.x + side * (p.r + 14), by = p.y;
+      if (rng.next() < 0.35) drawRock(c, bx, by, rng.range(6, 11));
+      else { c.strokeStyle = '#4f8a3a'; c.lineWidth = 2; for (let k = 0; k < 3; k++) { c.beginPath(); c.moveTo(bx + k * 3, by * TILT + 4); c.quadraticCurveTo(bx + k * 3 + 3, by * TILT - 8, bx + k * 3 + 1, by * TILT - 15 - k * 3); c.stroke(); } }
+    }
+    for (const br of bridges) if (!br.gate) this.bridgeDeck(c, br.x, br.y, 1, false);
   }
+
+  /** A crossing you can read at a glance: stone footings on both banks, dirt ramps, a plank deck and rope rails. */
+  private bridgeDeck(c: Ctx, x: number, y: number, down: number, gate: boolean): void {
+    const half = 78, w = 52, py = y * TILT, lift = (1 - down) * 30;
+    c.save(); c.translate(x, py);
+    for (const s of [-1, 1]) {                                     // dirt ramps leading onto the bridge
+      c.fillStyle = '#c9ad74'; c.beginPath(); c.ellipse(s * (half + 10), 4, 26, w * TILT * 0.62, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#a8a69d'; c.strokeStyle = '#77756e'; c.lineWidth = 1.5;
+      c.beginPath(); c.roundRect(s * half - 9, -w * TILT / 2 - 4, 18, w * TILT + 10, 4); c.fill(); c.stroke();   // stone footing
+    }
+    c.fillStyle = 'rgba(20,40,50,.35)'; c.fillRect(-half + 8, 10, half * 2 - 16, w * TILT * 0.7);   // shadow on the water
+    c.save(); c.translate(0, -lift);
+    if (gate && down < 1) { c.translate(-half, 0); c.rotate(-(1 - down) * 0.5); c.translate(half, 0); }
+    c.fillStyle = '#84603a'; c.fillRect(-half + 6, -w * TILT / 2 + 5, half * 2 - 12, w * TILT);
+    c.fillStyle = '#b98a56'; c.fillRect(-half + 6, -w * TILT / 2, half * 2 - 12, w * TILT);
+    c.strokeStyle = 'rgba(90,60,30,.65)'; c.lineWidth = 1.3;
+    for (let k = -half + 14; k < half - 6; k += 9) { c.beginPath(); c.moveTo(k, -w * TILT / 2); c.lineTo(k, w * TILT / 2); c.stroke(); }
+    c.fillStyle = '#d9b07c'; c.fillRect(-half + 6, -w * TILT / 2, half * 2 - 12, 2.5);
+    c.strokeStyle = '#5a3d22'; c.lineWidth = 3;
+    for (const ry of [-w * TILT / 2 - 2, w * TILT / 2 - 2]) {        // rails: posts and a rope
+      for (let k = -half + 8; k <= half - 8; k += 26) { c.beginPath(); c.moveTo(k, ry); c.lineTo(k, ry - 11); c.stroke(); }
+      c.strokeStyle = '#d9c38a'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-half + 8, ry - 10); c.quadraticCurveTo(0, ry - 6, half - 8, ry - 10); c.stroke();
+      c.strokeStyle = '#5a3d22'; c.lineWidth = 3;
+    }
+    c.restore();
+    if (gate) {                                                     // drawbridge winch posts and chains
+      c.fillStyle = '#6e4b2a'; for (const s of [-1, 1]) c.fillRect(-half - 4, s * 16 - 26, 8, 30);
+      c.strokeStyle = '#3b3b40'; c.lineWidth = 1.8; c.setLineDash([3, 2]);
+      for (const s of [-1, 1]) { c.beginPath(); c.moveTo(-half, s * 16 - 24); c.lineTo(half - 10, s * 10 - 4 - lift); c.stroke(); }
+      c.setLineDash([]);
+    }
+    c.restore();
+  }
+
   /** Timber deck across the river at (x, y); `down` 0..1 lowers it (drawbridges are raised when 0). */
   private planks(c: Ctx, x: number, y: number, len: number, down: number): void {
     const py = y * TILT, w = 46, half = len / 2;
@@ -644,7 +722,7 @@ export class Renderer {
     const m = f.match, t = f.time, R = m.bal.tickRate;
     if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
       this.gateDown += ((m.bridge.open ? 1 : 0) - this.gateDown) * Math.min(1, dt * 4);
-      this.planks(c, g.x, g.y, 46 * 2.6, this.gateDown);
+      this.bridgeDeck(c, g.x, g.y, this.gateDown, true);
       if (!m.bridge.open || m.bridge.warned) {
         const k = 0.5 + 0.5 * Math.sin(t * 8);
         c.strokeStyle = m.bridge.open ? `rgba(255,180,58,${0.5 + 0.4 * k})` : 'rgba(228,59,75,.85)'; c.lineWidth = 5; c.setLineDash([10, 7]);
@@ -699,6 +777,7 @@ export class Renderer {
     c.font = `800 ${fs}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
     if (m.bridge) for (const g of m.map.obstacles.filter(o => o.kind === 'gate')) {
       const s = Math.max(0, Math.ceil((m.bridge.nextTick - m.tick) / R));
+      if (s > 99) continue;
       this.pill(c, g.x, g.y * TILT - 58, `${m.bridge.open ? '🌉' : '⛔'} ${s}`, fs, m.bridge.open ? (m.bridge.warned ? '#d98a00' : 'rgba(16,38,26,.9)') : '#a3222f', '#fff', null);
     }
     const sd = m.gseed;

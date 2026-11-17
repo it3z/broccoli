@@ -8,13 +8,13 @@ export const VIS = {
   labelMinPx: 13.5,
   badgeMinPx: 12,
   // how a real unit count turns into drawn soldiers
-  iconsOneToOne: 10,        // up to this many: one sprite per unit
-  unitsPerExtraIcon: 5,     // beyond that: one more sprite per this many units
-  maxIcons: 20,
-  maxIconsLow: 9,           // reduced-effects mode
+  iconsOneToOne: 14,        // up to this many: one sprite per unit
+  unitsPerExtraIcon: 3,     // beyond that: one more sprite per this many units
+  maxIcons: 34,
+  maxIconsLow: 10,           // reduced-effects mode
   formationWidth: 7,        // most soldiers per rank (groups form two or three ranks)
-  spacingAcross: 19,
-  spacingAlong: 17,
+  spacingAcross: 16,
+  spacingAlong: 14,
   exitRankDelay: 0.16,      // seconds between ranks filing out of the door
   exitWalkSec: 0.4,         // seconds a soldier takes from the door to his place
   laneOffset: 17,

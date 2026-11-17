@@ -18,6 +18,10 @@
   button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
   .hidden { display: none !important; }
   #app { position: fixed; inset: 0; }
+  #menuCv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #menuStage { position: absolute; inset: 0; pointer-events: none; }
+  #menu.on { background: radial-gradient(90% 90% at 50% 45%, rgba(10,30,18,.35) 0%, rgba(10,30,18,.78) 100%); }
+  #resChart { width: min(560px, 80vw); height: auto; max-height: 22vh; margin: 2px 0 6px; border-radius: 10px; background: rgba(0,0,0,.25); }
   #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #stage { position: absolute; pointer-events: none; top: calc(44px + var(--st)); bottom: calc(4px + var(--sb)); left: calc(64px + var(--sl)); right: calc(64px + var(--sr)); }
 
@@ -50,8 +54,11 @@
   #btnSync.on { background: #2f86c9; border-color: #fff; } #btnAll.on { background: #2a8f4a; border-color: #fff; }
   #hud.flip #left { left: auto; right: calc(5px + var(--sr)); } #hud.flip #right { right: auto; left: calc(5px + var(--sl)); }
   #acts { display: flex; flex-direction: column; gap: 6px; }
+  #power { position: absolute; top: calc(1px + var(--st)); left: 34%; right: 34%; height: 5px; display: flex; border-radius: 3px; overflow: hidden; opacity: .95; pointer-events: none; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  #power i { display: block; height: 100%; transition: flex-grow .4s; }
+  #heroBar:empty { display: none; }
   #heroBar { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
-  .ab { height: 50px; max-height: 15vh; border-radius: 14px; background: rgba(16,38,26,.85); border: 2px solid rgba(255,255,255,.2); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; position: relative; opacity: .6; }
+  .ab { height: 46px; width: 54px; align-self: center; max-height: 14vh; border-radius: 23px; background: rgba(16,38,26,.85); border: 2px solid rgba(255,255,255,.2); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; padding: 0; position: relative; opacity: .6; }
   .ab.ready { opacity: 1; border-color: var(--gold); } .ab.aim { background: var(--gold); color: var(--ink); }
   .ab b { font-size: 17px; } .ab i { font-style: normal; font-size: 8.5px; font-weight: 800; } .ab u { position: absolute; inset: 0; display: grid; place-items: center; text-decoration: none; font-weight: 900; font-size: 18px; color: #fff; text-shadow: 0 1px 3px #000; }
   .ab u:empty { display: none; }
@@ -112,10 +119,12 @@
 </head>
 <body>
 <div id="app">
+  <canvas id="menuCv"></canvas><div id="menuStage"></div>
   <canvas id="cv" class="hidden"></canvas>
   <div id="stage"></div>
 
   <div id="hud" class="hidden">
+    <div id="power"></div>
     <div id="top">
       <div class="stat" id="morale"></div>
       <div class="stat" id="units"></div>
@@ -218,6 +227,7 @@
     <div id="resIcon"></div>
     <div id="resTitle"></div>
     <div id="resStats"></div>
+    <canvas id="resChart" width="560" height="120"></canvas>
     <div class="row">
       <button class="btn" id="btnAgain" data-i18n="again"></button>
       <button class="btn alt" id="btnResMenu" data-i18n="menu"></button>

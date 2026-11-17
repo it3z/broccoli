@@ -369,6 +369,9 @@ export class Session {
       const el = leaves[i] as HTMLElement; if (el.style.opacity !== o) el.style.opacity = o;
     }
     this.set('units', '🥦 ' + m.totalUnits(this.human));
+    // strength bar: every team's troops as a share of all troops on the board
+    const teams = [...new Set(m.players.map(p => p.team))], tot = teams.map(tm => m.players.filter(p => p.team === tm).reduce((n, p) => n + m.totalUnits(p.id), 0));
+    this.set('power', teams.map((tm, i) => `<i style="flex-grow:${tot[i] + 1};background:${colorOf(m.players.find(p => p.team === tm)!.id)}"></i>`).join(''), true);
     this.set('income', '+' + m.income(this.human).toFixed(1) + '/s');
     const fc = m.forgeCount(this.human);
     this.set('forgeStat', fc ? `☀️ +${Math.round(fc * m.bal.forge.attackBonus * 100)}%` : '');

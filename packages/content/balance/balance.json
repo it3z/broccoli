@@ -234,5 +234,15 @@
         }
       ]
     }
+  },
+  "aiMap": {
+    "spring_bridge": {
+      "hard": {
+        "thinkMs": [
+          400,
+          650
+        ]
+      }
+    }
   }
 }
