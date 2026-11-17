@@ -40,12 +40,15 @@ export function artFor(id: string, owner: number): HTMLCanvasElement | HTMLImage
   if (!mask) { tinted.set(key, base); return base; }
   const out = document.createElement('canvas'); out.width = base.naturalWidth; out.height = base.naturalHeight;
   const c = out.getContext('2d')!;
-  // team colour where the mask is white, then multiplied onto the painted base so shading survives
+  // the mask's brightness becomes the alpha of a flat team-colour layer, which is multiplied onto the painted base:
+  // black mask areas leave the base untouched, white areas take the team colour and keep the base's shading
   const tint = document.createElement('canvas'); tint.width = out.width; tint.height = out.height;
-  const t = tint.getContext('2d')!;
+  const t = tint.getContext('2d', { willReadFrequently: true })!;
   t.drawImage(mask, 0, 0, out.width, out.height);
-  t.globalCompositeOperation = 'multiply'; t.fillStyle = owner < 0 ? NEUTRAL : TEAM[owner % 4]; t.fillRect(0, 0, out.width, out.height);
-  t.globalCompositeOperation = 'destination-in'; t.drawImage(mask, 0, 0, out.width, out.height);
+  const px = t.getImageData(0, 0, out.width, out.height), d = px.data;
+  const hex = owner < 0 ? NEUTRAL : TEAM[owner % 4], r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), bl = parseInt(hex.slice(5, 7), 16);
+  for (let i = 0; i < d.length; i += 4) { const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255; d[i + 3] = Math.round(lum * d[i + 3]); d[i] = r; d[i + 1] = g; d[i + 2] = bl; }
+  t.putImageData(px, 0, 0);
   c.drawImage(base, 0, 0);
   c.globalCompositeOperation = 'multiply'; c.drawImage(tint, 0, 0);
   c.globalCompositeOperation = 'destination-in'; c.drawImage(base, 0, 0);   // keep the base silhouette
@@ -58,4 +61,13 @@ export function frameOf(strip: HTMLCanvasElement | HTMLImageElement, i: number, 
   const px = (strip instanceof HTMLImageElement ? strip.naturalHeight : strip.height) / fh;   // supplied resolution (e.g. 2 for @2x files)
   cv.getContext('2d')!.drawImage(strip, i * fw * px, 0, fw * px, fh * px, 0, 0, cv.width, cv.height);
   return cv;
+}
+/** Average colour of the opaque pixels of a slot for an owner (test hook). */
+export function artAverage(id: string, owner: number): number[] | null {
+  const im = artFor(id, owner); if (!im) return null;
+  const w = im instanceof HTMLImageElement ? im.naturalWidth : im.width, h = im instanceof HTMLImageElement ? im.naturalHeight : im.height;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const c = cv.getContext('2d')!; c.drawImage(im, 0, 0);
+  const d = c.getImageData(0, 0, w, h).data; let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+  return n ? [r / n, g / n, b / n].map(Math.round) : null;
 }
