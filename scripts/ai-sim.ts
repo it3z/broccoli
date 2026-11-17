@@ -3,15 +3,17 @@
 import { AIController, BALANCE, MAPS, Match, type Difficulty } from '../packages/simulation/src/index';
 
 const N = Number(process.argv[2] || 60);
+const CLASH = process.argv.includes('--clash');   // run with the experimental road-clash rule
 const diffs: Difficulty[] = ['easy', 'normal', 'hard'];
 function play(mapIndex: number, seats: Difficulty[], seed: number) {
-  const m = new Match({ map: MAPS[mapIndex], balance: BALANCE, seed, players: seats.map((_, s) => ({ slot: s, team: s, isAI: true })) });
+  const m = new Match({ map: MAPS[mapIndex], balance: BALANCE, seed, players: seats.map((_, s) => ({ slot: s, team: s, isAI: true })), roadClash: CLASH });
   const ais = seats.map((d, i) => new AIController(i, d, seed));
   while (m.phase === 'playing') { ais.forEach(a => a.update(m)); m.step(); }
   const sec = m.tick / BALANCE.tickRate;
   return { winner: m.winnerTeam, sec, orders: ais.map(a => a.orders / sec), timeout: sec >= BALANCE.matchTimeLimitSec };
 }
 const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) + '%' : '-');
+console.log(`Rule set: ${CLASH ? 'road clash ON (experimental)' : 'standard'}, ${N} games per pairing\n`);
 console.log(`| Map | Pairing (A vs B) | A wins | B wins | Draw/timeout | A wins as seat 1 / seat 2 | Avg length | Orders/s A / B |`);
 console.log('|---|---|---|---|---|---|---|---|');
 for (let mi = 0; mi < MAPS.length; mi++) {

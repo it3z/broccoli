@@ -1,5 +1,5 @@
 import type {
-  Army, Balance, Building, BuildingType, Command, MapDef, MatchConfig, Pct, Player, Projectile, SimEvent,
+  Army, Balance, Building, BuildingType, Command, MapDef, MatchConfig, Pct, PendingOrder, Player, Projectile, SimEvent,
 } from './types';
 import { buildPaths, pointAt, type Path } from './paths';
 
@@ -17,6 +17,9 @@ const TYPES: BuildingType[] = ['farm', 'tower', 'forge'];
  *  - Reaching any other building starts a battle: the army commits `battleRate` units per second; each unit removes
  *    A/D from the garrison. When a unit's damage exceeds what is left, the building changes owner once and the
  *    surplus plus every unit still waiting becomes the new garrison.
+ *  - A synchronized order holds nearer sources back so all groups reach the target together; units are still
+ *    deducted once, at each group's own launch. Losing the building cancels its waiting order.
+ *  - Optional road-clash rule (config.roadClash): hostile groups that meet on the road stop and trade losses.
  *  - Tower shots are simulated projectiles: damage lands exactly once on impact, and never from a tower that changed owner.
  */
 export class Match {
@@ -29,6 +32,10 @@ export class Match {
   buildings: Building[] = [];
   armies: Army[] = [];
   projectiles: Projectile[] = [];
+  pending: PendingOrder[] = [];
+  readonly roadClash: boolean;
+  /** Buildings owned by each player, sampled once per second (for the post-match summary). */
+  history: number[][] = [];
   events: SimEvent[] = [];
   phase: 'playing' | 'ended' = 'playing';
   winnerTeam: number | null = null;
@@ -40,6 +47,7 @@ export class Match {
     this.bal = cfg.balance;
     this.map = cfg.map;
     this.seed = cfg.seed;
+    this.roadClash = !!cfg.roadClash;
     this.paths = buildPaths(cfg.map);
     const slotToPlayer = new Map<number, number>();
     cfg.players.forEach((p, i) => {
@@ -141,25 +149,23 @@ export class Match {
     if (cmd.type === 'send') {
       const target = this.buildings[cmd.to];
       if (!target || !PCTS.includes(cmd.pct) || !Array.isArray(cmd.from)) return;
-      const seen = new Set<number>();
+      const seen = new Set<number>(), valid: Building[] = [];
       for (const id of cmd.from) {
         const b = this.buildings[id];
         if (!b || id === cmd.to || seen.has(id)) continue;
         seen.add(id);
-        const reject = (reason: 'empty' | 'not_owner' | 'cooldown') => this.events.push({ type: 'order_rejected', player: p.id, building: id, reason });
-        if (b.owner !== p.id) { reject('not_owner'); continue; }
-        if (this.tick < b.sendReadyTick) { reject('cooldown'); continue; }
-        const count = this.sendCount(b, cmd.pct);
-        if (count < 1) { reject('empty'); continue; }
-        b.garrison -= count;                                   // the one and only deduction
-        b.sendReadyTick = this.tick + Math.round(this.bal.sendCooldownSec * this.bal.tickRate);
-        const army: Army = {
-          id: this.nextId++, owner: p.id, from: id, to: cmd.to, units: count, startUnits: count, state: 'moving',
-          dist: 0, speed: this.bal.unitSpeed * this.speedFactor(p.id), createdTick: this.tick, engage: 0,
-          x: b.x, y: b.y, px: b.x, py: b.y,
-        };
-        this.armies.push(army);
-        this.events.push({ type: 'army_sent', army: army.id, owner: p.id, from: id, to: cmd.to, units: count });
+        if (b.owner !== p.id) { this.events.push({ type: 'order_rejected', player: p.id, building: id, reason: 'not_owner' }); continue; }
+        valid.push(b);
+      }
+      // synchronized attack: the farthest group leaves now, nearer ones wait so that all arrive together
+      const far = cmd.sync && valid.length > 1 ? Math.max(...valid.map(b => this.eta(b.id, cmd.to, p.id))) : 0;
+      for (const b of valid) {
+        const wait = far > 0 ? Math.round((far - this.eta(b.id, cmd.to, p.id)) * this.bal.tickRate) : 0;
+        if (wait <= 0) { this.launch(p, b, cmd.to, cmd.pct); continue; }
+        if (this.sendCount(b, cmd.pct) < 1) { this.events.push({ type: 'order_rejected', player: p.id, building: b.id, reason: 'empty' }); continue; }
+        this.pending = this.pending.filter(o => o.from !== b.id);       // a new order replaces a waiting one
+        this.pending.push({ id: this.nextId++, owner: p.id, from: b.id, to: cmd.to, pct: cmd.pct, orderTick: this.tick, launchTick: this.tick + wait });
+        this.events.push({ type: 'order_queued', player: p.id, building: b.id, to: cmd.to, launchTick: this.tick + wait });
         p.lastActionTick = this.tick;
       }
       return;
@@ -177,6 +183,30 @@ export class Match {
       this.startBusy(b, 'convert', this.bal.convert.timeSec, cmd.to);
     }
     p.lastActionTick = this.tick;
+  }
+
+  /** Travel time in seconds for a group of `player` leaving now. */
+  eta(from: number, to: number, player: number): number {
+    return this.paths[from][to].len / (this.bal.unitSpeed * this.speedFactor(player));
+  }
+
+  /** The one place units leave a garrison: deduct once, create one Army. */
+  private launch(p: Player, b: Building, to: number, pct: Pct): boolean {
+    const reject = (reason: 'empty' | 'cooldown') => { this.events.push({ type: 'order_rejected', player: p.id, building: b.id, reason }); return false; };
+    if (this.tick < b.sendReadyTick) return reject('cooldown');
+    const count = this.sendCount(b, pct);
+    if (count < 1) return reject('empty');
+    b.garrison -= count;
+    b.sendReadyTick = this.tick + Math.round(this.bal.sendCooldownSec * this.bal.tickRate);
+    const army: Army = {
+      id: this.nextId++, owner: p.id, from: b.id, to, units: count, startUnits: count, state: 'moving',
+      dist: 0, speed: this.bal.unitSpeed * this.speedFactor(p.id), createdTick: this.tick, engage: 0, foe: 0, wound: 0, heldTicks: 0,
+      x: b.x, y: b.y, px: b.x, py: b.y,
+    };
+    this.armies.push(army);
+    this.events.push({ type: 'army_sent', army: army.id, owner: p.id, from: b.id, to, units: count });
+    p.lastActionTick = this.tick;
+    return true;
   }
 
   private startBusy(b: Building, kind: 'upgrade' | 'convert', sec: number, to: BuildingType | null): void {
@@ -198,6 +228,7 @@ export class Match {
       for (const a of this.armies) if (a.owner === p.id) a.state = 'cancelled';
       this.armies = this.armies.filter(a => a.owner !== p.id);
       this.projectiles = this.projectiles.filter(s => s.owner !== p.id);
+      this.pending = this.pending.filter(o => o.owner !== p.id);
     }
     this.events.push({ type: 'player_eliminated', player: p.id });
   }
@@ -213,6 +244,16 @@ export class Match {
     const q = this.queue; this.queue = [];
     q.sort((a, b) => a.cmd.player - b.cmd.player || a.seq - b.seq);
     for (const c of q) this.apply(c.cmd);
+
+    // 1b. synchronized orders whose moment has come (void if the building changed hands meanwhile)
+    if (this.pending.length) {
+      for (const o of this.pending) {
+        if (o.launchTick > this.tick) continue;
+        const b = this.buildings[o.from];
+        if (b.owner === o.owner && this.players[o.owner].alive) { b.sendReadyTick = 0; this.launch(this.players[o.owner], b, o.to, o.pct); }
+      }
+      this.pending = this.pending.filter(o => o.launchTick > this.tick);
+    }
 
     // 2. finished upgrades / conversions
     for (const b of this.buildings) {
@@ -243,6 +284,8 @@ export class Match {
       a.x = p.x; a.y = p.y;
     }
 
+    if (this.roadClash) this.clashes(dt);
+
     // 5. towers fire; projectiles in flight land
     this.towers();
     this.landProjectiles();
@@ -253,7 +296,8 @@ export class Match {
       if (a.state === 'moving' && a.dist >= this.paths[a.from][a.to].len) this.arrive(a);
       if (a.state === 'fighting') this.fight(a, dt);
     }
-    this.armies = this.armies.filter(a => a.state === 'moving' || a.state === 'fighting');
+    this.armies = this.armies.filter(a => a.state === 'moving' || a.state === 'fighting' || a.state === 'clashing');
+    if (this.tick % bal.tickRate === 0) this.history.push(this.players.map(p => this.buildingCount(p.id)));
 
     // 7. idle morale decay
     for (const p of this.players) {
@@ -269,6 +313,45 @@ export class Match {
     const teams = new Set(this.players.filter(p => p.alive).map(p => p.team));
     if (teams.size <= 1) this.finish(teams.size === 1 ? [...teams][0] : null);
     else if (this.tick >= bal.matchTimeLimitSec * bal.tickRate) this.finish(this.leaderOnTime());
+  }
+
+  /** Experimental road-clash rule: hostile groups that meet stop and wear each other down; the survivor marches on. */
+  private clashes(dt: number): void {
+    const R2 = this.bal.clash.radius ** 2, list = this.armies;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]; if (a.state !== 'moving' || a.units <= 0) continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (b.state !== 'moving' || b.units <= 0 || this.sameTeam(a.owner, b.owner)) continue;
+        if ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 > R2) continue;
+        a.state = b.state = 'clashing'; a.foe = b.id; b.foe = a.id; a.wound = b.wound = 0;
+        this.events.push({ type: 'clash_started', a: a.id, b: b.id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        break;
+      }
+    }
+    for (const a of list) {
+      if (a.state !== 'clashing') continue;
+      a.heldTicks++;
+      const b = list.find(x => x.id === a.foe);
+      if (!b || b.units <= 0 || b.state !== 'clashing') { a.state = 'moving'; a.foe = 0; continue; }   // opponent gone (e.g. shot down)
+      if (a.id > b.id) continue;                                                                       // each pair once
+      const Aa = this.attackFactor(a.owner), Ab = this.attackFactor(b.owner), rate = this.bal.clash.rate * dt;
+      a.wound += rate * (Ab / Aa); b.wound += rate * (Aa / Ab);
+      for (const [x, y] of [[a, b], [b, a]] as const) {
+        while (x.wound >= 1 && x.units > 0) {
+          x.wound -= 1; x.units -= 1;
+          this.players[x.owner].stats.lost += 1; this.players[y.owner].stats.killed += 1;
+          this.events.push({ type: 'clash_hit', army: x.id, owner: x.owner, x: x.x, y: x.y });
+        }
+      }
+      for (const [x, y] of [[a, b], [b, a]] as const) {
+        if (x.units > 0) continue;
+        x.state = 'cancelled';
+        this.addMorale(x.owner, -this.bal.morale.waveShotDown);
+        this.events.push({ type: 'army_destroyed', army: x.id, owner: x.owner, x: x.x, y: x.y });
+        if (y.units > 0) { y.state = 'moving'; y.foe = 0; this.events.push({ type: 'clash_resolved', winner: y.id, x: y.x, y: y.y }); }
+      }
+    }
   }
 
   private towers(): void {
@@ -361,6 +444,7 @@ export class Match {
       if (b.type !== 'forge') b.level = Math.max(1, b.level - 1);
       b.owner = a.owner; b.garrison = survivors;
       this.projectiles = this.projectiles.filter(s => s.tower !== b.id);   // shots from the old owner are void
+      this.pending = this.pending.filter(o => o.from !== b.id);            // and so is its waiting order
       attacker.lastActionTick = this.tick;
       this.events.push({ type: 'building_captured', building: b.id, by: a.owner, from: prev });
       this.events.push({ type: 'battle_resolved', army: a.id, building: b.id, attacker: a.owner, captured: true, survivors });
@@ -399,6 +483,7 @@ export class Match {
       this.buildings.map(b => [b.type, b.owner, b.level, r(b.garrison), b.busyKind, b.busyEnd]),
       this.armies.map(a => [a.owner, a.from, a.to, a.units, a.state, r(a.dist)]),
       this.projectiles.map(s => [s.tower, s.target, s.ticksLeft]),
+      this.pending.map(o => [o.from, o.to, o.launchTick]),
     ]);
   }
 }

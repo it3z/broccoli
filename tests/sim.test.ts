@@ -19,7 +19,8 @@ const sane = (m: Match) => {
     assert.ok(Number.isInteger(a.units) && a.units > 0, `bad army units ${a.units}`);
     assert.ok(Number.isFinite(a.x) && Number.isFinite(a.y));
     assert.ok(Math.hypot(a.x - a.px, a.y - a.py) <= a.speed / m.bal.tickRate + 1e-6, 'army teleported');
-    const limit = (m.paths[a.from][a.to].len / a.speed + a.startUnits / m.bal.battleRate + 2) * m.bal.tickRate;
+    if (a.state === 'clashing') assert.ok(m.roadClash && a.foe > 0);
+    const limit = (m.paths[a.from][a.to].len / a.speed + a.startUnits / m.bal.battleRate + 2) * m.bal.tickRate + a.heldTicks;
     assert.ok(m.tick - a.createdTick <= limit, `army ${a.id} stuck in state ${a.state}`);
   }
   for (const p of m.players) assert.ok(p.morale >= 0 && p.morale <= BALANCE.morale.max);
@@ -397,4 +398,85 @@ test('J: AI-vs-AI matches on every map resolve with no stuck army, NaN or negati
     if (m.winnerTeam !== null) decided++;
   }
   assert.ok(decided >= 8, `decided ${decided}/12`);
+});
+
+test('synchronized attack: nearer buildings wait, all groups arrive together, each deducted once at its own launch', () => {
+  const m = match(mk([
+    { type: 'tower', level: 1, x: 100, y: 450, slot: 0, garrison: 20 },   // far
+    { type: 'tower', level: 1, x: 500, y: 250, slot: 0, garrison: 20 },   // middle
+    { type: 'tower', level: 1, x: 700, y: 520, slot: 0, garrison: 20 },   // near
+    { type: 'forge', level: 1, x: 900, y: 450, slot: -1, garrison: 30 }, FAR]));
+  m.enqueue({ type: 'send', player: 0, from: [0, 1, 2], to: 3, pct: 50, sync: true });
+  m.step();
+  assert.equal(m.armies.length, 1, 'only the farthest group leaves at once');
+  assert.equal(m.pending.length, 2);
+  assert.deepEqual(m.buildings.slice(0, 3).map(b => b.garrison), [10, 20, 20], 'waiting buildings keep their units until launch');
+  const arrivals: number[] = []; let sent = 1, caps = 0;
+  run(m, 400, ev => {
+    for (const e of ev) { if (e.type === 'army_arrived') arrivals.push(m.tick); if (e.type === 'army_sent') sent++; if (e.type === 'building_captured') caps++; }
+    assert.equal(m.totalUnits(0) + m.players[0].stats.lost >= 59.999, true);
+    sane(m);
+  });
+  assert.equal(sent, 3);
+  assert.equal(arrivals.length, 3);
+  assert.ok(Math.max(...arrivals) - Math.min(...arrivals) <= 1, `arrival ticks ${arrivals}`);
+  assert.deepEqual(m.buildings.slice(0, 3).map(b => b.garrison), [10, 10, 10]);
+  assert.equal(m.pending.length, 0);
+  assert.equal(caps, 0, '30 units at 50% are not enough here; the forge holds');
+
+  // without sync the same order arrives spread out
+  const n = match(m.map);
+  n.enqueue({ type: 'send', player: 0, from: [0, 1, 2], to: 3, pct: 50 });
+  const spread: number[] = [];
+  run(n, 400, ev => { for (const e of ev) if (e.type === 'army_arrived') spread.push(n.tick); });
+  assert.ok(Math.max(...spread) - Math.min(...spread) > 60);
+});
+
+test('a waiting synchronized order is void once its building is captured', () => {
+  const m = match(mk([
+    { type: 'tower', level: 1, x: 100, y: 450, slot: 0, garrison: 20 },
+    { type: 'tower', level: 1, x: 800, y: 450, slot: 0, garrison: 4 },
+    { type: 'forge', level: 1, x: 1000, y: 450, slot: -1, garrison: 30 },
+    { type: 'tower', level: 1, x: 800, y: 620, slot: 1, garrison: 40 }]));
+  m.enqueue({ type: 'send', player: 0, from: [0, 1], to: 2, pct: 100, sync: true });
+  m.enqueue({ type: 'send', player: 1, from: [3], to: 1, pct: 100 });
+  let fromLost = 0;
+  run(m, 400, ev => { for (const e of ev) if (e.type === 'army_sent' && e.owner === 0 && e.from === 1) fromLost++; sane(m); });
+  assert.equal(m.buildings[1].owner, 1);
+  assert.equal(fromLost, 0, 'no army left the captured building');
+  assert.equal(m.pending.length, 0);
+});
+
+test('road-clash rule (experimental): groups that meet stop and trade losses; off by default they pass', () => {
+  const map = mk([
+    { type: 'tower', level: 1, x: 200, y: 450, slot: 0, garrison: 20 },
+    { type: 'tower', level: 1, x: 1200, y: 450, slot: 1, garrison: 8 }]);
+  const play = (clash: boolean) => {
+    const m = new Match({ map, balance: BALANCE, seed: 1, players: two, roadClash: clash });
+    m.players[0].lastActionTick = 1e9; m.players[1].lastActionTick = 1e9;
+    m.enqueue({ type: 'send', player: 0, from: [0], to: 1, pct: 100 });
+    m.enqueue({ type: 'send', player: 1, from: [1], to: 0, pct: 100 });
+    let started = 0, held = 0, hits = 0;
+    run(m, 600, ev => { started += count(ev, 'clash_started'); hits += count(ev, 'clash_hit'); if (m.armies.some(a => a.state === 'clashing')) held++; sane(m); });
+    return { m, started, held, hits };
+  };
+  const off = play(false);
+  assert.equal(off.started, 0);
+  assert.deepEqual([off.m.buildings[0].owner, off.m.buildings[1].owner], [1, 0], 'without the rule both groups walk past and take the empty buildings');
+  const on = play(true);
+  assert.equal(on.started, 1);
+  assert.ok(on.held >= 15, `the clash lasts long enough to read (${on.held} ticks)`);
+  assert.equal(on.hits, 16, 'equal morale: 8 lost on each side');
+  assert.equal(on.m.buildings[1].owner, 0, 'the 12 survivors march on and take the empty tower');
+  assert.equal(on.m.buildings[0].owner, 0);
+  assert.ok(Math.abs(on.m.buildings[1].garrison - 12) < 1e-9);
+});
+
+test('road-clash matches still resolve cleanly with AI on both sides', () => {
+  for (let seed = 1; seed <= 6; seed++) {
+    const m = new Match({ map: MAPS[seed % 2], balance: BALANCE, seed, players: [0, 1].map(s => ({ slot: s, team: s, isAI: true })), roadClash: true });
+    const ais = [new AIController(0, 'hard', seed), new AIController(1, 'normal', seed)];
+    while (m.phase === 'playing') { ais.forEach(a => a.update(m)); m.step(); sane(m); }
+    assert.ok(m.history.length > 10 && m.history.every(h => h.length === 2));
+  }
 });

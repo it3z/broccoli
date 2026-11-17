@@ -149,5 +149,9 @@
       "maxFarmLevel": 4,
       "forgeAtFarms": 6
     }
+  },
+  "clash": {
+    "radius": 34,
+    "rate": 7
   }
 }

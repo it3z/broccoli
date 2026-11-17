@@ -20,6 +20,7 @@ export interface Balance {
   sendCooldownSec: number;
   projectileSpeed: number;
   matchTimeLimitSec: number;
+  clash: { radius: number; rate: number };
   ai: Record<'easy' | 'normal' | 'hard', AiProfile>;
   farm: { levels: { prod: number; cap: number; def: number }[]; upgradeCost: number[]; upgradeTimeSec: number[] };
   tower: { levels: { range: number; fireIntervalSec: number; damage: number; def: number }[]; upgradeCost: number[]; upgradeTimeSec: number[] };
@@ -38,16 +39,20 @@ export interface Building {
   busyKind: null | 'upgrade' | 'convert'; busyStart: number; busyEnd: number; convertTo: BuildingType | null;
   cooldown: number; sendReadyTick: number;
 }
-export type ArmyState = 'moving' | 'fighting' | 'arrived' | 'cancelled';
+export type ArmyState = 'moving' | 'fighting' | 'clashing' | 'arrived' | 'cancelled';
 /** A real marching group. Its units left the source garrison once, at the moment it was sent. */
 export interface Army {
   id: number; owner: number; from: number; to: number;
   units: number; startUnits: number; state: ArmyState;
   dist: number; speed: number; createdTick: number; engage: number;
+  foe: number; wound: number; heldTicks: number;   // road-clash rule: opponent id (0 = none), fractional losses, time spent held
   x: number; y: number; px: number; py: number;
 }
 /** A tower shot in flight. Damage is applied exactly once, on the impact tick. */
 export interface Projectile { id: number; tower: number; owner: number; target: number; damage: number; ticksLeft: number; totalTicks: number }
+
+/** A synchronized-attack order waiting for its launch moment (nearer buildings leave later). */
+export interface PendingOrder { id: number; owner: number; from: number; to: number; pct: Pct; orderTick: number; launchTick: number }
 
 export interface PlayerStats { produced: number; lost: number; killed: number; captures: number }
 export interface Player {
@@ -55,7 +60,7 @@ export interface Player {
 }
 export type Pct = 25 | 50 | 75 | 100;
 export type Command =
-  | { type: 'send'; player: number; from: number[]; to: number; pct: Pct }
+  | { type: 'send'; player: number; from: number[]; to: number; pct: Pct; sync?: boolean }
   | { type: 'upgrade'; player: number; building: number }
   | { type: 'convert'; player: number; building: number; to: BuildingType }
   | { type: 'surrender'; player: number };
@@ -72,6 +77,10 @@ export type SimEvent =
   | { type: 'projectile_hit'; projectile: number; army: number; owner: number; victim: number; x: number; y: number; kills: number }
   | { type: 'army_destroyed'; army: number; owner: number; x: number; y: number }
   | { type: 'order_rejected'; player: number; building: number; reason: 'empty' | 'not_owner' | 'cooldown' | 'invalid' }
+  | { type: 'order_queued'; player: number; building: number; to: number; launchTick: number }
+  | { type: 'clash_started'; a: number; b: number; x: number; y: number }
+  | { type: 'clash_hit'; army: number; owner: number; x: number; y: number }
+  | { type: 'clash_resolved'; winner: number; x: number; y: number }
   | { type: 'upgrade_started'; building: number }
   | { type: 'upgraded'; building: number }
   | { type: 'converted'; building: number }
@@ -81,4 +90,6 @@ export type SimEvent =
 export interface MatchConfig {
   map: MapDef; balance: Balance; seed: number;
   players: { slot: number; team: number; isAI: boolean }[];
+  /** Experimental rule: hostile armies that meet on the road stop and fight. Off by default. */
+  roadClash?: boolean;
 }
