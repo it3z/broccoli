@@ -1,6 +1,6 @@
 {
   "name": "broccoli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "BROCCOLI: Kingdom Clash \u2014 original real-time strategy game",
@@ -10,12 +10,16 @@
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "sim:ai": "tsx scripts/ai-sim.ts 100"
+    "sim:ai": "tsx scripts/ai-sim.ts 100",
+    "server": "tsx apps/server/src/server.ts",
+    "test:online": "node scripts/e2e-online.mjs",
+    "lint:server": "tsc --noEmit -p tsconfig.server.json"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
     "tsx": "^4.23.12",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@types/node": "^22.10.0"
   }
 }

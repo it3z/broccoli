@@ -7,6 +7,9 @@ declare const __BUILD__: string;
 import { getLang, setLang, t, type Lang } from './ui/i18n';
 import { initOrientation } from './ui/orient';
 import { LESSONS, type Lesson } from './ui/lessons';
+import { Net, defaultServer } from './net';
+import { colorOf as teamColor } from './render/art';
+import type { RoomConfig } from '../../../packages/simulation/src/online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const store = {
@@ -110,6 +113,43 @@ function renderSettings(): void {
     v => { flipHud = v === 'right'; store.set('side', v); renderSettings(); });
 }
 
+let net: Net | null = null;
+function renderOnline(): void {
+  $<HTMLInputElement>('srvUrl').value = defaultServer();
+  $('btnRejoin').classList.toggle('hidden', !Net.saved());
+  $('lobbyInfo').innerHTML = '';
+}
+function connect(): Net {
+  net?.close();
+  const url = $<HTMLInputElement>('srvUrl').value.trim();
+  let wasDown = false;
+  net = new Net(url, {
+    lobby: (code, size, seats) => {
+      if (session?.online) return;
+      $('lobbyInfo').innerHTML = `<b>${code}</b>${t('waiting')}<div class="seats">${seats.map((st, i) =>
+        `<span class="${st}" style="border:2px solid ${teamColor(i)}">${i === net!.seat ? t('seatYou') : i + 1}</span>`).join('')}</div>`;
+      void size;
+    },
+    start: (rc, seat) => startOnline(rc, seat),
+    snap: (ev, st) => session?.online && session.applySnap(ev, st),
+    end: history => { if (session?.online) session.match.history = history; Net.forget(); },
+    error: reason => { sfx.deny(); $('lobbyInfo').textContent = t('err_' + reason); if (reason === 'bad_token') Net.forget(); },
+    status: up => {
+      const el = $('toast');
+      if (!up && session?.online) { wasDown = true; el.textContent = t('reconnecting'); el.className = ''; }
+      else if (up && wasDown) { wasDown = false; el.textContent = t('reconnected'); el.className = 'info'; setTimeout(() => el.classList.add('hidden'), 1500); }
+    },
+  });
+  return net;
+}
+function startOnline(rc: RoomConfig, seat: number): void {
+  if (session?.online && session.online.seat === seat && session.online.rc.seed === rc.seed) return;   // rejoined the same match
+  session?.dispose(); current = null;
+  overlay('pause', false); overlay('result', false); show(null);
+  session = new Session({ ...setup, lowFx, roadClash: false, flipHud, firstMatch: false, online: { net: net!, rc, seat } }, onEnd);
+  (window as unknown as { __broccoli: Session }).__broccoli = session;
+}
+
 let current: Lesson | null = null;
 function startMatch(lesson: Lesson | null = null): void {
   current = lesson;
@@ -123,7 +163,7 @@ function startMatch(lesson: Lesson | null = null): void {
 }
 
 function onEnd(m: Match): void {
-  const me = m.players[0], won = m.winnerTeam === me.team, foes = m.players.filter(p => p.team !== me.team);
+  const me = m.players[session?.human ?? 0], won = m.winnerTeam === me.team, foes = m.players.filter(p => p.team !== me.team);
   $('resTitle').textContent = m.winnerTeam === null ? t('draw') : won ? t('victory') : t('defeat');
   $('resTitle').className = won ? 'win' : 'loss';
   $('resIcon').textContent = won ? '🏆' : m.winnerTeam === null ? '🤝' : '🥀';
@@ -158,6 +198,7 @@ function turning(m: Match): string {
 }
 
 function toMenu(): void {
+  if (session?.online) { net?.close(); net = null; }
   session?.dispose(); session = null;
   overlay('pause', false); overlay('result', false);
   show('menu');
@@ -176,6 +217,11 @@ function init(): void {
 
   $('btnSolo').onclick = () => { sfx.tap(); renderSetup(); show('setup'); };
   $('btnLearn').onclick = () => { sfx.tap(); renderLearn(); show('learn'); };
+  $('btnOnline').onclick = () => { sfx.tap(); renderOnline(); show('online'); };
+  $('btnCreate1').onclick = () => { sfx.tap(); connect().create(2, setup.mapIndex === 1 ? 0 : setup.mapIndex); };
+  $('btnCreate2').onclick = () => { sfx.tap(); connect().create(4, 1); };
+  $('btnJoin').onclick = () => { sfx.tap(); connect().join($<HTMLInputElement>('codeIn').value); };
+  $('btnRejoin').onclick = () => { const sv = Net.saved(); if (!sv) return; $<HTMLInputElement>('srvUrl').value = sv.url; connect().rejoin(sv.code, sv.token); };
   $('btnHow').onclick = () => { sfx.tap(); show('howto'); };
   $('btnSettings').onclick = () => { sfx.tap(); renderSettings(); show('settings'); };
   document.querySelectorAll<HTMLElement>('[data-back]').forEach(b => (b.onclick = () => {
@@ -195,7 +241,7 @@ function init(): void {
     session.paused = false; overlay('pause', false);
   };
   $('btnQuit').onclick = toMenu;
-  $('btnAgain').onclick = () => startMatch(current);
+  $('btnAgain').onclick = () => { if (session?.online) { net?.close(); net = null; renderOnline(); show('online'); overlay('result', false); session.dispose(); session = null; return; } startMatch(current); };
   $('btnResMenu').onclick = toMenu;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && session && session.match.phase === 'playing' && !session.paused) { session.paused = true; overlay('pause', true); }

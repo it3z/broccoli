@@ -5,9 +5,12 @@ import { setIntensity, setScene, sfx, unlockAudio } from './audio/sfx';
 import { t } from './ui/i18n';
 import { toLocal, toScreenPx } from './ui/orient';
 import { track, type Lesson, type Progress } from './ui/lessons';
+import type { Net } from './net';
+import { applySnapshot, roomMatchConfig, type RoomConfig } from '../../../packages/simulation/src/online';
 
 export interface SessionOpts { mapIndex: number; opponents: number; difficulty: Difficulty; seed: number; lowFx: boolean; roadClash: boolean; flipHud: boolean; firstMatch: boolean;
-  goldenSeed: boolean; mode: 'conquest' | 'control'; hero: HeroId | null; lesson?: Lesson | null }
+  goldenSeed: boolean; mode: 'conquest' | 'control'; hero: HeroId | null; lesson?: Lesson | null;
+  online?: { net: Net; rc: RoomConfig; seat: number } | null }
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const ICON: Record<BuildingType, string> = { farm: '🥦', tower: '🗼', forge: '☀️' };
 const ABI: Record<string, string> = { burst: '🌱', rush: '💨', bulwark: '🛡️', volley: '🏹', mud: '🟤', snare: '🌿' };
@@ -16,7 +19,10 @@ const MAX_DT = 0.1; // a long frame (tab switch, Safari in background) never adv
 /** One running match: fixed-step simulation, AI, touch input, HUD and rendering glue. */
 export class Session {
   readonly match: Match;
-  readonly human = 0;
+  readonly human: number;
+  /** Online: the server runs the match; this client only renders snapshots and sends commands. */
+  readonly online: { net: Net; rc: RoomConfig; seat: number } | null;
+  private lastSnap = 0;
   readonly renderer: Renderer;
   readonly ais: AIController[] = [];
   selection = new Set<number>();
@@ -52,8 +58,11 @@ export class Session {
     // computer opponents get a hero too (picked from the match seed), so abilities are in play on both sides
     const pick = new Rng(opts.seed + 31), HEROES: HeroId[] = ['sprig', 'armorleaf', 'turnip'];
     const heroes = players.map((_, i) => (i === 0 ? opts.hero : opts.hero ? HEROES[pick.int(3)] : null));
-    this.match = new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash, goldenSeed: opts.goldenSeed, mode: opts.mode, heroes });
-    for (let i = 1; i < players.length; i++) this.ais.push(new AIController(i, opts.difficulty, opts.seed));
+    this.online = opts.online ?? null; this.human = this.online ? this.online.seat : 0;
+    this.match = this.online ? new Match(roomMatchConfig(this.online.rc))
+      : new Match({ map, balance: BALANCE, seed: opts.seed, players, roadClash: opts.roadClash, goldenSeed: opts.goldenSeed, mode: opts.mode, heroes });
+    if (this.online) { const net = this.online.net; this.match.enqueue = cmd => net.send(cmd); }   // commands go to the server
+    if (!this.online) for (let i = 1; i < players.length; i++) this.ais.push(new AIController(i, opts.difficulty, opts.seed));
     this.renderer = new Renderer(this.canvas, $('stage'));
     opts.lesson?.setup?.(this.match);
     this.bind();
@@ -83,8 +92,9 @@ export class Session {
     const dt = Math.min(MAX_DT, this.lastT ? (ts - this.lastT) / 1000 : 0);
     this.lastT = ts;
     const m = this.match, step = 1 / m.bal.tickRate;
-    const blocked = this._paused;
-    if (!blocked && m.phase === 'playing') {
+    const blocked = this._paused && !this.online;
+    if (this.online) { this.time += dt; }
+    else if (!blocked && m.phase === 'playing') {
       this.acc += dt * this.speed; this.time += dt;
       while (this.acc >= step && m.phase === 'playing') {
         for (const ai of this.ais) ai.update(m);
@@ -98,7 +108,7 @@ export class Session {
     if (this.drag) this.drag.sources = this.drag.sources.filter(id => m.buildings[id].owner === this.human);
     if (this.drag && this.drag.sources.length === 0) this.drag = null;
     this.renderer.draw({
-      match: m, alpha: m.phase === 'playing' && !blocked ? Math.min(1, this.acc / step) : 1, time: this.time, human: this.human,
+      match: m, alpha: this.online ? Math.min(1, (performance.now() - this.lastSnap) / (1000 * step)) : m.phase === 'playing' && !blocked ? Math.min(1, this.acc / step) : 1, time: this.time, human: this.human,
       pct: this.pct, selection: this.selection, drag: this.drag, box: this.box, lowFx: this.lowFx,
       sync: this.sync, labels: { attack: t('lblAttack'), reinforce: t('lblReinforce'), capture: t('lblCapture'), sec: t('sec') },
     });
@@ -116,6 +126,14 @@ export class Session {
     }
     this.raf = requestAnimationFrame(this.frame);
   };
+
+  /** Online: a server snapshot replaces the match state, then sounds and effects play from its events. */
+  applySnap(ev: unknown[], s: Record<string, unknown>): void {
+    applySnapshot(this.match, s);
+    this.match.events = ev as Match['events'];
+    this.lastSnap = performance.now(); this.stepsRun++;
+    this.react();
+  }
 
   /** Stereo position of a world point: -1 left edge of the screen, +1 right edge. */
   private pan(x: number): number {
