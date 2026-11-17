@@ -13,6 +13,7 @@
 | كل المؤثرات الصوتية | تركيب Web Audio (مذبذبات + ضجيج مفلتر) | `apps/client/src/audio/sfx.ts` |
 | الأجواء (حفيف، طيور، ماء) | ضجيج مفلتر بـLFO + زقزقات مولّدة عشوائياً | `sfx.ts` |
 | الموسيقى (طبقة هادئة + طبقة معركة) | متتالية خماسية أصلية مولّدة بالكود | `sfx.ts` |
+| خامات الأرض (عشب، تراب، صخر، خشب، أوراق) | خرائط تفصيل رمادية قابلة للتكرار مولّدة بـ ImageMagick (`scripts/make-textures.sh`، بذرة ثابتة) وتُطبَّق بـ soft-light؛ ملفات PNG في `packages/content/textures/` وتُضمَّن في البناء | `textures.ts` |
 | الخطوط | خطوط النظام (`system-ui`) | — |
 | الرموز في الواجهة (🥦 🍃 ⏱ ⚑ …) | محارف Unicode تعرضها خطوط الجهاز | — |
 
@@ -21,3 +22,6 @@
 
 ## ما يلزم لنسخة إنتاجية مرسومة يدوياً
 أطلس PNG/WebP للمباني والجنود (8 اتجاهات)، وتسجيلات صوتية حقيقية أو مكتبة مرخّصة. نقاط الاستبدال: `drawBuilding` و`makeSoldierSheets` و`sfx`.
+
+## أدوات طُلبت ولم تتوفر (جلسة 2026‑11‑17)
+Blender و Material Maker و SpriteSheetMaker و Free Texture Packer و Tiled و Audacity غير مثبتة، وتنزيل الحزم والملفات مغلق (npm/GitHub/kenney.nl)، فلم تُستخدم Kenney Impact Sounds ولا Howler.js ولا Yuka ولا Colyseus. **لا يوجد في المشروع أي أصل خارجي**؛ كل ما سبق إنتاج داخلي. بدائل مستخدمة: ImageMagick للخامات، Web Audio للأصوات، رسم Canvas إجرائي للنماذج.
