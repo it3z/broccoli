@@ -26,3 +26,7 @@
 
 ## أدوات طُلبت ولم تتوفر (جلسة 2026‑11‑17)
 Blender و Material Maker و SpriteSheetMaker و Free Texture Packer و Tiled و Audacity غير مثبتة، وتنزيل الحزم والملفات مغلق (npm/GitHub/kenney.nl)، فلم تُستخدم Kenney Impact Sounds ولا Howler.js ولا Yuka ولا Colyseus. **لا يوجد في المشروع أي أصل خارجي**؛ كل ما سبق إنتاج داخلي. بدائل مستخدمة: ImageMagick للخامات، Web Audio للأصوات، رسم Canvas إجرائي للنماذج.
+
+
+## حزمة الفن المرسوم (منذ v0.7.0)
+أي PNG في `packages/content/art/` يحل محل الرسم الإجرائي لخانته؛ انظر `docs/ART_ASSETS_NEEDED.md`. لا توجد حالياً ملفات في الحزمة (القوالب في `templates/` لا تُضمَّن).

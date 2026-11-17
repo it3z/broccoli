@@ -25,6 +25,7 @@ export class Renderer {
   private ctx: Ctx;
   private bg = document.createElement('canvas');
   private sheets = makeSoldierSheets(3);
+  private sheetScale = 3;
   private pool: Particle[] = Array.from({ length: VIS.maxParticles }, () => ({ on: false, x: 0, y: 0, vx: 0, vy: 0, g: 0, life: 0, max: 1, size: 1, color: '#fff' }));
   private cursor = 0;
   private fallen: Fallen[] = [];
@@ -71,10 +72,13 @@ export class Renderer {
     this.ox = s.left - c.left + (s.width - (x1 - x0) * this.scale) / 2 - x0 * this.scale;
     this.oy = s.top - c.top + (s.height - (y1 - y0) * this.scale) / 2 - y0 * this.scale;
     this.bview = match.buildings.map((_, i) => this.bview[i] ?? { shake: 0, flash: 0, kick: 0, raise: 1, prevOwner: -1, aim: 0, tension: 0, hits: 0, hitClock: 0, hitColor: '#fff' });
+    // soldier sprites are baked at the size they appear on screen: scaling a 3x sprite down every frame costs far more fill
+    const want = Math.min(3, Math.max(1, Math.ceil(this.ss * this.scale * this.dpr * 4) / 4));
+    if (want !== this.sheetScale) { this.sheetScale = want; this.sheets = makeSoldierSheets(want); }
     clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
     loadTextures(() => this.paintBackground(match));
-    loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(3); clearBuildingCache(); } });
+    loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(this.sheetScale); clearBuildingCache(); } });
     (window as unknown as { __broccoliArt: () => string[] }).__broccoliArt = artPackNames;
   }
 
