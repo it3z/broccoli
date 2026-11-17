@@ -10,6 +10,8 @@ export interface MapDef {
   slots: number;
   buildings: { type: string; level: number; x: number; y: number; slot: number; garrison: number }[];
   obstacles: { kind: string; x: number; y: number; r: number }[];
+  /** Drawing hints for river crossings (the simulation only sees the gaps and the gate obstacle). */
+  bridges?: { x: number; y: number; gate: boolean; tilt: number }[];
 }
 
 export type HeroId = 'sprig' | 'armorleaf' | 'turnip';
@@ -26,6 +28,8 @@ export interface Balance {
   matchTimeLimitSec: number;
   clash: { radius: number; rate: number };
   ai: Record<'easy' | 'normal' | 'hard', AiProfile>;
+  /** Per-map adjustments to a difficulty level, found by measurement (see docs/AI_BALANCE.md). */
+  aiMap?: Record<string, Partial<Record<'easy' | 'normal' | 'hard', Partial<AiProfile>>>>;
   seed: { firstAtSec: number; intervalSec: number; warnSec: number; holdSec: number; buffSec: number; prodMult: number; radius: number };
   control: { holdSec: number };
   bridge: { openSec: number; closedSec: number; warnSec: number };

@@ -1,4 +1,5 @@
-import { MAPS, type Difficulty, type HeroId, type Match } from '../../../packages/simulation/src/index';
+import { AIController, BALANCE, MAPS, Match, type Difficulty, type HeroId } from '../../../packages/simulation/src/index';
+import { Renderer } from './render/renderer';
 import { Session, type SessionOpts } from './game';
 import { colorOf } from './render/art';
 import { levels, setLevel, sfx, unlockAudio } from './audio/sfx';
@@ -30,7 +31,31 @@ const setup: SessionOpts = {
   goldenSeed: store.get('gseed', '1') === '1', mode: 'conquest', hero: (store.get('hero', 'sprig') || null) as HeroId | null,
 };
 
+/** The menu sits on a live computer-vs-computer battle on Spring Bridge (no sound, no input). */
+let demo: { m: Match; ais: AIController[]; r: Renderer; raf: number; last: number; acc: number; time: number } | null = null;
+function startDemo(): void {
+  if (demo) return;
+  const seed = (Date.now() % 100000) | 1;
+  const m = new Match({ map: MAPS[2], balance: BALANCE, seed, goldenSeed: true, heroes: ['sprig', 'turnip'], players: [0, 1].map(s => ({ slot: s, team: s, isAI: true })) });
+  const r = new Renderer($<HTMLCanvasElement>('menuCv'), $('menuStage'));
+  demo = { m, ais: [new AIController(0, 'hard', seed), new AIController(1, 'hard', seed + 1)], r, raf: 0, last: 0, acc: 0, time: 0 };
+  r.resize(m);
+  const loop = (ts: number) => {
+    if (!demo) return;
+    const d = demo, dt = Math.min(0.1, d.last ? (ts - d.last) / 1000 : 0); d.last = ts; d.acc += dt; d.time += dt;
+    while (d.acc >= 0.05) { d.ais.forEach(a => a.update(d.m)); d.m.step(); d.r.onEvents(d.m, d.m.events); d.acc -= 0.05; }
+    d.r.draw({ match: d.m, alpha: d.acc / 0.05, time: d.time, human: -1, pct: 50, lowFx: true, sync: false, selection: new Set(), drag: null, box: null, labels: { attack: '', reinforce: '', capture: '', sec: '' } });
+    if (d.m.phase === 'ended') { stopDemo(); startDemo(); return; }
+    d.raf = requestAnimationFrame(loop);
+  };
+  demo.raf = requestAnimationFrame(loop);
+}
+function stopDemo(): void { if (demo) cancelAnimationFrame(demo.raf); demo = null; }
+window.addEventListener('resize', () => { if (demo) requestAnimationFrame(() => demo?.r.resize(demo.m)); });
+
 function show(id: string | null): void {
+  $('menuCv').classList.toggle('hidden', id !== 'menu');
+  if (id === 'menu') startDemo(); else stopDemo();
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
   $('hud').classList.toggle('hidden', id !== null);
   $('cv').classList.toggle('hidden', id !== null);
@@ -178,6 +203,16 @@ function onEnd(m: Match): void {
     [t('turning'), turning(m)],
   ];
   $('resStats').innerHTML = rows.map(r => `<div><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+  // buildings held by each player over the match, one line per player in the team colour
+  const cv = $<HTMLCanvasElement>('resChart'), c = cv.getContext('2d')!, H = m.history, W = cv.width, Ht = cv.height;
+  c.clearRect(0, 0, W, Ht);
+  const top = Math.max(1, ...H.flat()), n = Math.max(1, H.length - 1);
+  c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1; for (let k = 1; k < 4; k++) { c.beginPath(); c.moveTo(0, (Ht * k) / 4); c.lineTo(W, (Ht * k) / 4); c.stroke(); }
+  m.players.forEach((p, i) => {
+    c.strokeStyle = teamColor(i); c.lineWidth = i === me.id ? 4 : 2.5; c.lineJoin = 'round'; c.beginPath();
+    H.forEach((h, k) => { const x = (k / n) * (W - 8) + 4, y = Ht - 6 - (h[i] / top) * (Ht - 14); k ? c.lineTo(x, y) : c.moveTo(x, y); });
+    c.stroke();
+  });
   if (current && session) {
     const ok = session.lessonResult === 'win' || (!session.lessonResult && won);
     if (ok) store.set('done.' + current.id, '1');

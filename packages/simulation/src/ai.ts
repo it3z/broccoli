@@ -31,7 +31,7 @@ export class AIController {
   }
 
   update(m: Match): void {
-    if (!this.prof) this.prof = m.bal.ai[this.difficulty];
+    if (!this.prof) this.prof = { ...m.bal.ai[this.difficulty], ...(m.bal.aiMap?.[m.map.id]?.[this.difficulty] ?? {}) } as AiProfile;
     if (m.phase !== 'playing' || !m.players[this.player].alive || m.tick < this.nextThink) return;
     const [a, b] = this.prof.thinkMs;
     this.nextThink = m.tick + Math.max(1, Math.round((this.rng.range(a, b) / 1000) * m.bal.tickRate));
@@ -95,7 +95,9 @@ export class AIController {
       return t > 0 && t * 1.15 > (b.garrison + (friendly.get(b.id) ?? 0)) * m.defenseFactor(b);
     };
     const foes = m.buildings.filter(b => b.owner >= 0 && hostile(b));
-    const front = (b: Building) => Math.min(...foes.map(e => m.paths[b.id][e.id].len), 1e9);
+    // distances as a group leaving now would walk them: with the drawbridge closed it uses the other crossing
+    const v = m.bal.unitSpeed * m.speedFactor(me), far2 = (a: number, b: number) => m.eta(a, b, me) * v;
+    const front = (b: Building) => Math.min(...foes.map(e => far2(b.id, e.id)), 1e9);
     const farms = mine.filter(b => b.type === 'farm');
     const has = (t: string) => mine.some(b => b.type === t || b.convertTo === t);
     const idle = farms.filter(b => !b.busyKind);
@@ -129,7 +131,7 @@ export class AIController {
     for (const b of mine) {
       if (!prof.defends || !(inDanger(b) || (objective(b.id) > 1 && (threat.get(b.id) ?? 0) > 0 && (threat.get(b.id) ?? 0) * 1.4 > b.garrison * m.defenseFactor(b)))) continue;
       const helper = mine.filter(o => o.id !== b.id && spare(o) >= 4)
-        .sort((x, y) => m.paths[x.id][b.id].len - m.paths[y.id][b.id].len)[0];
+        .sort((x, y) => far2(x.id, b.id) - far2(y.id, b.id))[0];
       if (helper) {
         m.enqueue({ type: 'send', player: me, from: [helper.id], to: b.id, pct: 75 });
         this.log(m, 'defend', `#${helper.id} -> #${b.id} (threat ${Math.round(threat.get(b.id) ?? 0)} vs ${Math.floor(b.garrison)})`);
@@ -170,11 +172,11 @@ export class AIController {
     for (const t of m.buildings) {
       if (!hostile(t)) continue;
       const D = m.defenseFactor(t);
-      const near = [...sources].sort((x, y) => m.paths[x.id][t.id].len - m.paths[y.id][t.id].len);
+      const near = [...sources].sort((x, y) => far2(x.id, t.id) - far2(y.id, t.id));
       const orders: { b: Building; want: number }[] = [];
       let sum = 0, need = Infinity, far = 0;
       for (const s of near) {
-        far = Math.max(far, m.paths[s.id][t.id].len);
+        far = Math.max(far, far2(s.id, t.id));
         const growth = Math.min(m.prodRate(t) * (far / speed), Math.max(0, m.capacity(t) - t.garrison));
         need = ((t.garrison + growth + (support.get(t.id) ?? 0)) * D) / A * prof.margin + 2 - (friendly.get(t.id) ?? 0);
         const want = Math.min(spare(s), Math.ceil(need - sum));

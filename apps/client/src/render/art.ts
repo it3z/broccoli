@@ -24,8 +24,11 @@ const STONE = '#a8a69d', STONE_D = '#77756e', STONE_L = '#d3d1c8';
 export const AMBER = '#ffb43a';
 
 /** Warm timber wall with plank seams and a lit top edge. */
+// owned buildings have their planks painted in the team colour; neutral ones are bare wood
+const PAINT = ['#4fbf93', '#cf5c67', '#5f9fe0', '#9b7fe0'];
+let paintOwner = -1;
 function timber(c: Ctx, x: number, y: number, w: number, h: number) {
-  c.fillStyle = WOOD; c.strokeStyle = WOOD_D; c.lineWidth = 1.6;
+  c.fillStyle = paintOwner < 0 ? WOOD : PAINT[paintOwner % 4]; c.strokeStyle = WOOD_D; c.lineWidth = 1.6;
   c.beginPath(); c.roundRect(x, y, w, h, 4); c.fill(); c.stroke();
   c.strokeStyle = 'rgba(90,60,30,.55)'; c.lineWidth = 1;
   for (let px = x + 8; px < x + w - 3; px += 9) { c.beginPath(); c.moveTo(px, y + 3); c.lineTo(px, y + h - 2); c.stroke(); }
@@ -70,6 +73,40 @@ function flag(c: Ctx, x: number, y: number, _owner: number, t: number) {
   emblemShape(c, x + 8.5, y - 23 + w * 0.5, 2.7, owner, owner < 0 ? NEUTRAL_DARK : '#fff');
   c.restore();
 }
+
+/**
+ * Ground the building sits on, instead of a uniform ring: the village has a small packed yard with stepping stones,
+ * the tower stands on a rock outcrop, the forge on scorched earth and ash. Ownership shows as a soft glow in the
+ * team colour plus the painted walls, banner and flag.
+ */
+function foundation(c: Ctx, type: BuildingType, owner: number) {
+  if (owner >= 0) {
+    const g = c.createRadialGradient(0, 0, 8, 0, 0, 74);
+    g.addColorStop(0, hexA(TEAM[owner % 4], 0.5)); g.addColorStop(1, hexA(TEAM[owner % 4], 0));
+    c.save(); c.scale(1, 0.5); c.fillStyle = g; circ(c, 0, 0, 74); c.fill(); c.restore();
+  }
+  if (type === 'farm') {
+    c.fillStyle = '#b8995f'; c.beginPath(); c.moveTo(-50, 2); c.bezierCurveTo(-52, -16, -18, -24, 6, -22); c.bezierCurveTo(40, -21, 56, -8, 50, 6); c.bezierCurveTo(44, 20, -40, 22, -50, 2); c.fill();
+    c.fillStyle = '#d2b57c'; c.beginPath(); c.ellipse(-2, 0, 40, 14, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = STONE_L; c.strokeStyle = STONE_D; c.lineWidth = 1;
+    for (const [sx, sy] of [[-4, 9], [4, 15], [-2, 21]]) { c.beginPath(); c.ellipse(sx, sy, 5.5, 2.6, 0, 0, Math.PI * 2); c.fill(); c.stroke(); }
+    c.fillStyle = WOOD_D; for (const px of [36, 44]) c.fillRect(px, -2, 2.5, 10);
+  } else if (type === 'tower') {
+    const rock = (x: number, y: number, r: number) => {
+      c.fillStyle = STONE_D; c.beginPath(); c.moveTo(x - r, y + r * 0.3); c.lineTo(x - r * 0.7, y - r * 0.5); c.lineTo(x + r * 0.2, y - r * 0.7); c.lineTo(x + r, y - r * 0.2); c.lineTo(x + r * 0.8, y + r * 0.35); c.closePath(); c.fill();
+      c.fillStyle = STONE; c.beginPath(); c.moveTo(x - r * 0.75, y + r * 0.1); c.lineTo(x - r * 0.55, y - r * 0.42); c.lineTo(x + r * 0.15, y - r * 0.58); c.lineTo(x + r * 0.5, y - r * 0.2); c.closePath(); c.fill();
+      c.strokeStyle = STONE_L; c.lineWidth = 1.6; c.beginPath(); c.moveTo(x - r * 0.55, y - r * 0.42); c.lineTo(x + r * 0.15, y - r * 0.58); c.stroke();
+    };
+    rock(-30, 6, 18); rock(30, 7, 16); rock(0, 4, 30); rock(-14, 14, 12); rock(18, 15, 11);
+  } else {
+    const g = c.createRadialGradient(0, 0, 4, 0, 0, 58);
+    g.addColorStop(0, 'rgba(40,32,28,.75)'); g.addColorStop(0.6, 'rgba(70,58,48,.45)'); g.addColorStop(1, 'rgba(90,80,70,0)');
+    c.save(); c.scale(1, 0.45); c.fillStyle = g; circ(c, 0, 0, 58); c.fill(); c.restore();
+    c.fillStyle = 'rgba(255,150,60,.75)'; for (const [ex, ey] of [[-30, 6], [24, 9], [34, -2], [-38, -3], [8, 13]]) { circ(c, ex, ey, 1.4); c.fill(); }
+    c.fillStyle = 'rgba(200,195,185,.55)'; for (const [ex, ey] of [[-20, 12], [30, 4], [-44, 4]]) { c.beginPath(); c.ellipse(ex, ey, 6, 2.4, 0, 0, Math.PI * 2); c.fill(); }
+  }
+}
+function hexA(hex: string, a: number): string { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 
 function baseRing(c: Ctx, owner: number) {
   const rx = 56, ry = 56 * TILT * 0.55;
@@ -237,11 +274,11 @@ export function clearBuildingCache(): void { bodyCache.clear(); }
 function body(c: Ctx, type: BuildingType, level: number, owner: number, t: number, low: boolean) {
   shadow(c, 9, 5, 58, 19, 0.2);                 // soft cast shadow
   if (!low) shadow(c, 0, 2, 44, 13, 0.3);       // tight contact shadow: the building sits on the ground
-  baseRing(c, owner);
+  foundation(c, type, owner);
   if (type === 'farm') farm(c, level, owner, t); else if (type === 'tower') tower(c, level, owner, t); else forge(c, owner, t);
 }
 export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: number, t: number, look: BuildingLook = {}) {
-  flagRaise = look.raise ?? 1; flagOwner = look.flagOwner ?? owner; towerAim = look.aim ?? 0; towerTension = look.tension ?? 0;
+  flagRaise = look.raise ?? 1; flagOwner = look.flagOwner ?? owner; towerAim = look.aim ?? 0; towerTension = look.tension ?? 0; paintOwner = owner;
   const S = look.cacheScale ?? 0;
   if (!S) { pass = ALL; body(c, type, level, owner, t, !!look.low); return; }
   const key = `${type}${level}_${owner}_${look.low ? 1 : 0}_${S}`;
@@ -260,7 +297,8 @@ export function drawBuilding(c: Ctx, type: BuildingType, level: number, owner: n
 export const buildingTop = (type: BuildingType, level: number) => (type === 'farm' ? 96 + level * 5 + (level >= 4 ? 14 : 0) : type === 'tower' ? 112 + level * 9 : 82);
 
 export const SOLDIER = { w: 34, h: 42, run: 4, attack: 2 };
-export interface SoldierSheet { run: HTMLCanvasElement[]; attack: HTMLCanvasElement[]; hit: HTMLCanvasElement; fall: HTMLCanvasElement }
+/** run = side view (flipped for left), runF = walking toward the camera, runB = walking away from it. */
+export interface SoldierSheet { run: HTMLCanvasElement[]; runF: HTMLCanvasElement[]; runB: HTMLCanvasElement[]; attack: HTMLCanvasElement[]; hit: HTMLCanvasElement; fall: HTMLCanvasElement }
 export const FALL = { w: 46, h: 30 };
 
 /**
@@ -278,8 +316,18 @@ function outline(src: HTMLCanvasElement, scale: number): HTMLCanvasElement {
   return out;
 }
 
+/** Bake the contact shadow and the team-coloured footing under the soldier, so the renderer draws one image per soldier. */
+function grounded(src: HTMLCanvasElement, team: number, scale: number): HTMLCanvasElement {
+  const out = document.createElement('canvas'); out.width = src.width; out.height = src.height;
+  const c = out.getContext('2d')!; c.scale(scale, scale);
+  c.fillStyle = 'rgba(10,30,15,.32)'; c.beginPath(); c.ellipse(17.5, 39.4, 10, 2.5, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = team < 4 ? TEAM[team] : NEUTRAL; c.globalAlpha = 0.6; c.beginPath(); c.ellipse(16.5, 39, 8, 2.4, 0, 0, Math.PI * 2); c.fill();
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.drawImage(src, 0, 0);
+  return out;
+}
+
 export function makeSoldierSheets(scale: number): SoldierSheet[] {
-  const draw = (team: number, leg: number, bob: number, thrust: number, dazed = false): HTMLCanvasElement => {
+  const draw = (team: number, leg: number, bob: number, thrust: number, dazed = false, view = 0): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(SOLDIER.w * scale); cv.height = Math.ceil(SOLDIER.h * scale);
     const c = cv.getContext('2d')!; c.scale(scale, scale); c.lineJoin = 'round'; c.lineCap = 'round';
     const col = team < 4 ? TEAM[team] : NEUTRAL, dark = team < 4 ? TEAM_DARK[team] : NEUTRAL_DARK, y = bob;
@@ -297,16 +345,25 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     c.fillStyle = '#dfe8b4'; c.strokeStyle = '#7d8f4f'; c.lineWidth = 1.2;
     c.beginPath(); c.roundRect(10, 17 + y, 12, 15, 5); c.fill(); c.stroke();
     c.fillStyle = col; c.strokeStyle = dark; c.beginPath(); c.roundRect(9.5, 23 + y, 13, 8.5, 3); c.fill(); c.stroke();
-    // leaf shield with the team shape
+    // leaf shield with the team shape (on the back when walking away)
+    if (view !== 2) {
     c.fillStyle = dark; c.beginPath(); c.moveTo(9, 18.5 + y); c.quadraticCurveTo(17, 25 + y, 9, 34 + y); c.quadraticCurveTo(1, 25 + y, 9, 18.5 + y); c.fill();
     c.fillStyle = col; c.beginPath(); c.moveTo(9, 20 + y); c.quadraticCurveTo(15.3, 25.5 + y, 9, 32.5 + y); c.quadraticCurveTo(2.7, 25.5 + y, 9, 20 + y); c.fill();
     c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(9, 21 + y); c.lineTo(9, 31.5 + y); c.stroke();
     emblemShape(c, 9, 26 + y, 2.3, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
+    } else {
+      c.fillStyle = dark; c.beginPath(); c.moveTo(16, 18 + y); c.quadraticCurveTo(26, 25 + y, 16, 35 + y); c.quadraticCurveTo(6, 25 + y, 16, 18 + y); c.fill();
+      c.fillStyle = col; c.beginPath(); c.moveTo(16, 19.5 + y); c.quadraticCurveTo(24, 25.5 + y, 16, 33.5 + y); c.quadraticCurveTo(8, 25.5 + y, 16, 19.5 + y); c.fill();
+      emblemShape(c, 16, 26 + y, 2.6, team < 4 ? team : -1, team < 4 ? '#fff' : NEUTRAL_DARK);
+    }
     // face
     if (dazed) {   // knocked silly: crossed eyes, no blood
       c.strokeStyle = '#16210f'; c.lineWidth = 1.3;
       for (const ex of [15.5, 20.3]) { c.beginPath(); c.moveTo(ex - 1.8, 17.8 + y); c.lineTo(ex + 1.8, 21.2 + y); c.moveTo(ex + 1.8, 17.8 + y); c.lineTo(ex - 1.8, 21.2 + y); c.stroke(); }
-    } else {
+    } else if (view === 1) {   // facing the camera
+      c.fillStyle = '#fff'; circ(c, 13.6, 19.5 + y, 2.3); c.fill(); circ(c, 18.6, 19.5 + y, 2.3); c.fill();
+      c.fillStyle = '#16210f'; circ(c, 13.8, 20 + y, 1.2); c.fill(); circ(c, 18.4, 20 + y, 1.2); c.fill();
+    } else if (view === 0) {
       c.fillStyle = '#fff'; circ(c, 15.5, 19.5 + y, 2.3); c.fill(); circ(c, 20.3, 19.5 + y, 2.1); c.fill();
       c.fillStyle = '#16210f'; circ(c, 16.3, 19.8 + y, 1.15); c.fill(); circ(c, 20.9, 19.8 + y, 1.05); c.fill();
     }
@@ -317,7 +374,7 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
       c.fillStyle = '#62c56a'; circ(c, fx - fr * 0.3, fy + y - fr * 0.3, fr * 0.45); c.fill();
     }
     c.fillStyle = col; c.strokeStyle = dark; c.lineWidth = 0.8; c.beginPath(); c.roundRect(9.5, 15 + y, 13.5, 3, 1.5); c.fill(); c.stroke();
-    return outline(cv, scale);
+    return grounded(outline(cv, scale), team, scale);
   };
   const lying = (src: HTMLCanvasElement): HTMLCanvasElement => {
     const cv = document.createElement('canvas'); cv.width = Math.ceil(FALL.w * scale); cv.height = Math.ceil(FALL.h * scale);
@@ -330,6 +387,8 @@ export function makeSoldierSheets(scale: number): SoldierSheet[] {
     const hit = draw(i, 0.9, 1.5, -0.8, true);
     return {
       run: [draw(i, 1, 0, 0), draw(i, 0.2, -1.5, 0), draw(i, -1, 0, 0), draw(i, -0.2, -1.5, 0)],
+      runF: [1, 0.2, -1, -0.2].map((l, k) => draw(i, l * 0.6, k % 2 ? -1.5 : 0, 0, false, 1)),
+      runB: [1, 0.2, -1, -0.2].map((l, k) => draw(i, l * 0.6, k % 2 ? -1.5 : 0, 0, false, 2)),
       attack: [draw(i, 0.6, 0, -0.5), draw(i, -0.6, 1, 1)],
       hit, fall: lying(hit),
     };
