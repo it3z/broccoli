@@ -1,5 +1,5 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
-import { artPackNames, loadArtPack } from './artpack';
+import { artAverage, artPackNames, loadArtPack } from './artpack';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 import { loadTextures, texture } from './textures';
@@ -79,7 +79,7 @@ export class Renderer {
     this.paintBackground(match);
     loadTextures(() => this.paintBackground(match));
     loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(this.sheetScale); clearBuildingCache(); } });
-    (window as unknown as { __broccoliArt: () => string[] }).__broccoliArt = artPackNames;
+    Object.assign(window, { __broccoliArt: artPackNames, __broccoliArtAverage: artAverage });
   }
 
   private world(c: Ctx): void {
