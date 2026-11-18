@@ -1,6 +1,6 @@
 {
   "name": "broccoli",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "BROCCOLI: Kingdom Clash \u2014 original real-time strategy game",
