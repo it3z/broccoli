@@ -61,6 +61,19 @@ def shade(hexs, k):
     return "#%02x%02x%02x" % tuple(c)
 
 
+def hsv_shift(hexs, dv, ds, dh):
+    """Painterly value change: darker tones get richer and cooler, lighter tones warmer (dh in turns)."""
+    import colorsys
+    h = hexs.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    hh, ss, vv = colorsys.rgb_to_hsv(r, g, b)
+    hh = (hh + dh) % 1.0
+    ss = min(1.0, ss * ds)
+    vv = min(1.0, vv * dv)
+    r, g, b = colorsys.hsv_to_rgb(hh, ss, vv)
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+
 MATS = {}
 
 
@@ -84,12 +97,12 @@ def toon(name, base, shadow=None, hi=None):
     ramp = nt.nodes.new("ShaderNodeValToRGB")
     cr = ramp.color_ramp
     cr.interpolation = "CONSTANT"
-    shadow = shadow or shade(base, 0.62)
-    hi = hi or shade(base, 1.14)
+    shadow = shadow or hsv_shift(base, 0.62, 1.2, 0.03)
+    hi = hi or hsv_shift(base, 1.15, 0.92, -0.015)
     cr.elements[0].position = 0.0
     cr.elements[0].color = lin(shadow)
     cr.elements[1].position = 0.30
-    cr.elements[1].color = lin(shade(base, 0.82))
+    cr.elements[1].color = lin(hsv_shift(base, 0.84, 1.1, 0.012))
     e = cr.elements.new(0.42)
     e.color = lin(base)
     e = cr.elements.new(0.62)
@@ -150,26 +163,39 @@ def outline_mat():
 
 
 def palette():
-    toon("BroccoliHead", "#3f9a3a", "#1f5a24", "#79c552")
-    toon("BroccoliTop", "#5db544", "#2c6e2c", "#a4dc6a")
-    toon("Stalk", "#a9d67a", "#5f9447", "#d2efa2")
-    toon("TEAM_cloth", "#d9d9d9", "#8f8f8f", "#ffffff")
-    toon("Wood", "#9a6a3c", "#5a3a1e", "#c49260")
-    toon("WoodDark", "#6b4526", "#3b2412", "#8e6038")
-    toon("Stone", "#a6a397", "#676458", "#cfcbbd")
-    toon("StoneDark", "#7c786c", "#4a473e", "#a19d8f")
-    toon("Plaster", "#efe0bc", "#b29e75", "#fff6dc")
-    toon("Steel", "#c9d1d6", "#7d878e", "#ffffff")
-    toon("Gold", "#f2c23a", "#b07a12", "#ffe68a")
-    toon("Soil", "#a07c4f", "#6a4e2e", "#c39b68")
-    toon("Grass", "#6aa84a", "#3f6f2e", "#8fcf63")
-    toon("Ash", "#4b4642", "#2b2725", "#6c6560")
-    toon("Roof", "#7a4a35", "#45281b", "#a3664a")
-    toon("Leaf", "#4fa83f", "#2b6a27", "#86d361")
+    # saturated, sunlit palette (shadows are derived: cooler and richer; highlights warmer)
+    toon("BroccoliHead", "#3daa35")
+    toon("BroccoliTop", "#62c83f")
+    toon("Stalk", "#b9e27a")
+    toon("TEAM_cloth", "#f2f2f2", "#a9a9b4", "#ffffff")
+    toon("Wood", "#b5793f")
+    toon("WoodDark", "#7a4a24")
+    toon("Plank", "#c98e4f")
+    toon("Stone", "#b9b2a0")
+    toon("StoneDark", "#8c8576")
+    toon("Plaster", "#f7e3b2")
+    toon("Steel", "#cfd8de", "#7c8a96", "#ffffff")
+    toon("Gold", "#ffc93a")
+    toon("Soil", "#bb8b52")
+    toon("Grass", "#79c94a")
+    toon("Ash", "#4e4743")
+    toon("Coal", "#2f2b2a")
+    toon("Roof", "#a5553a")
+    toon("Leaf", "#52b83c")
+    toon("TreeA", "#4fb441")
+    toon("TreeB", "#72cf4c")
+    toon("TreeC", "#9be260")
+    toon("TreeDarkA", "#22764a")
+    toon("TreeDarkB", "#2f9455")
+    toon("TreeDarkC", "#4cb264")
+    toon("Bark", "#8a5a33")
+    toon("Rope", "#e8cf8a")
+    toon("Moss", "#6dbb46")
     toon("Black", "#151515", "#000000", "#2a2a2a")
-    toon("White", "#ffffff", "#d8d8d8", "#ffffff")
-    glow("Window", "#ffcf5a", 2.5)
-    glow("Fire", "#ff8a1f", 4.0)
+    toon("White", "#ffffff", "#d8d8e0", "#ffffff")
+    glow("Window", "#ffd25e", 2.6)
+    glow("Fire", "#ffb030", 5.0)
+    glow("Ember", "#ff6a1a", 4.0)
     outline_mat()
 
 
@@ -284,9 +310,9 @@ def build_soldier():
                       vertices=16, radius1=1.0, radius2=0.85, depth=2.0)
     p["belt"] = prim("torus", "Belt", "WoodDark", loc=(0, 0, 0.175 * S), scale=(0.071 * S, 0.071 * S, 0.06 * S), parent=body,
                      major_radius=1.0, minor_radius=0.12, major_segments=24, minor_segments=6, outline=0.006)
-    head = empty("Head", loc=(0, 0, 0.27 * S), parent=body)
+    head = empty("Head", loc=(0, 0, 0.258 * S), parent=body)
     head.scale = (1, 1, 0.72)
-    floret("Crown", (0, 0, 0.0), 0.115 * S, head, n=8, seed=3)
+    floret("Crown", (0, 0, 0.0), 0.097 * S, head, n=8, seed=3)
     for i, y in enumerate((-0.03, 0.03)):
         prim("uv", f"Eye{i}", "Black", loc=(0.062 * S, y * S, 0.21 * S), scale=(0.012 * S, 0.012 * S, 0.016 * S), parent=body, outline=0,
              segments=10, ring_count=6)
@@ -468,21 +494,164 @@ def build_head(drawn=False):
     return root
 
 
+def prism(name, mat, w, d, h, loc, parent, outline=0.012):
+    """Gable roof: a triangular prism along X (w long, d deep, h high), eaves at z=0."""
+    v = [(-w, -d, 0), (w, -d, 0), (w, d, 0), (-w, d, 0), (-w, 0, h), (w, 0, h)]
+    f = [(0, 1, 5, 4), (2, 3, 4, 5), (0, 4, 3), (1, 2, 5), (0, 3, 2, 1)]
+    ob = mesh_obj(name, v, f, mat, parent)
+    ob.location = loc
+    for p in ob.data.polygons:
+        p.use_smooth = False
+    add_outline(ob, outline)
+    return ob
+
+
 def build_forge():
     root = empty("Forge")
     root.scale = (BSCALE,) * 3
-    ground_disk("Scorch", "Ash", 1.1, 0.68, root, seed=70, jitter=0.15)
-    stones("Cinder", root, 0.9, 0.55, 10, seed=71, mat="StoneDark", size=(0.05, 0.09))
-    prim("cube", "Hall", "Stone", loc=(0, 0.05, 0.36), scale=(0.62, 0.42, 0.36), parent=root, outline=0.014)
-    # pitched roof: a scaled, rotated cube reads as a gable from this angle
-    prim("cube", "RoofL", "TEAM_cloth", loc=(0, -0.13, 0.86), scale=(0.68, 0.3, 0.035), rot=(0.62, 0, 0), parent=root, outline=0.012)
-    prim("cube", "RoofR", "TEAM_cloth", loc=(0, 0.23, 0.86), scale=(0.68, 0.3, 0.035), rot=(-0.62, 0, 0), parent=root, outline=0.012)
-    prim("cyl", "Chimney", "StoneDark", loc=(0.38, 0.2, 1.05), scale=(0.11, 0.11, 0.32), parent=root, vertices=10, outline=0.012)
-    prim("cyl", "Mouth", "Black", loc=(0, -0.38, 0.2), scale=(0.2, 0.2, 0.05), rot=(math.pi / 2, 0, 0), parent=root, vertices=16, outline=0.01)
-    prim("cyl", "Fire", "Fire", loc=(0, -0.41, 0.17), scale=(0.15, 0.13, 0.03), rot=(math.pi / 2, 0, 0), parent=root, vertices=16, outline=0)
-    prim("cube", "Anvil", "Steel", loc=(0.5, -0.5, 0.12), scale=(0.12, 0.06, 0.06), parent=root, outline=0.008)
-    prim("cube", "AnvilFoot", "WoodDark", loc=(0.5, -0.5, 0.04), scale=(0.07, 0.07, 0.05), parent=root, outline=0.008)
-    prim("cube", "ForgeBanner", "TEAM_cloth", loc=(-0.42, -0.39, 0.45), scale=(0.12, 0.012, 0.2), parent=root, outline=0.01)
+    rng = np.random.default_rng(72)
+    ground_disk("Scorch", "Ash", 1.12, 0.7, root, seed=70, jitter=0.15)
+    stones("Cinder", root, 0.95, 0.58, 12, seed=71, mat="StoneDark", size=(0.05, 0.09))
+    # stone plinth, then walls laid in alternating courses of blocks
+    prim("cube", "Plinth", "StoneDark", loc=(0, 0.05, 0.06), scale=(0.72, 0.5, 0.06), parent=root, outline=0.012)
+    for row in range(5):
+        z = 0.16 + row * 0.12
+        off = 0.11 if row % 2 else 0.0
+        for side, y, sx, sy in (("F", -0.37, 1, 0), ("B", 0.47, 1, 0)):
+            x = -0.6 + off
+            while x < 0.6:
+                w = min(0.2, 0.6 - x)
+                prim("cube", f"Blk{side}{row}_{x:.2f}", "Stone" if rng.random() > 0.35 else "StoneDark",
+                     loc=(x + w / 2, y, z), scale=(w / 2 - 0.006, 0.05, 0.056), parent=root, outline=0.006)
+                x += w
+        for side, xx in (("L", -0.62), ("R", 0.62)):
+            prim("cube", f"Side{side}{row}", "Stone" if (row + (side == "L")) % 2 else "StoneDark",
+                 loc=(xx, 0.05, z), scale=(0.05, 0.42, 0.056), parent=root, outline=0.006)
+    prim("cube", "Inner", "Coal", loc=(0, 0.05, 0.4), scale=(0.57, 0.4, 0.3), parent=root, outline=0)
+    # gable roof in the team colour, with a ridge beam and a smoking chimney
+    prism("Roof", "TEAM_cloth", 0.74, 0.55, 0.42, (0, 0.05, 0.76), root, outline=0.014)
+    prim("cube", "Ridge", "WoodDark", loc=(0, 0.05, 1.19), scale=(0.76, 0.03, 0.03), parent=root, outline=0.008)
+    slope = math.atan2(0.42, 0.55)
+    for k in range(4):   # dark battens across both slopes break the roof into rows of tiles
+        t = (k + 0.5) / 4
+        for side in (-1, 1):
+            prim("cube", f"Batten{side}{k}", "WoodDark", loc=(0, 0.05 + side * 0.55 * (1 - t), 0.76 + 0.42 * t + 0.012),
+                 scale=(0.745, 0.012, 0.008), rot=(side * slope, 0, 0), parent=root, outline=0)
+    prim("cube", "Chimney", "StoneDark", loc=(0.38, 0.22, 1.12), scale=(0.11, 0.11, 0.3), parent=root, outline=0.012)
+    prim("cube", "ChimneyCap", "Stone", loc=(0.38, 0.22, 1.43), scale=(0.14, 0.14, 0.03), parent=root, outline=0.01)
+    prim("cube", "ChimneyGlow", "Ember", loc=(0.38, 0.22, 1.465), scale=(0.08, 0.08, 0.01), parent=root, outline=0)
+    # furnace: a stone arch on the front with a bright fire, embers and a coal heap
+    prim("cyl", "Arch", "Stone", loc=(0, -0.43, 0.3), scale=(0.24, 0.24, 0.06), rot=(math.pi / 2, 0, 0), parent=root, vertices=20, outline=0.012)
+    prim("cyl", "Mouth", "Coal", loc=(0, -0.48, 0.28), scale=(0.17, 0.17, 0.03), rot=(math.pi / 2, 0, 0), parent=root, vertices=20, outline=0)
+    prim("cyl", "FireGlow", "Fire", loc=(0, -0.5, 0.24), scale=(0.13, 0.1, 0.02), rot=(math.pi / 2, 0, 0), parent=root, vertices=16, outline=0)
+    for i in range(6):
+        prim("ico", f"Ember{i}", "Ember", loc=(-0.1 + i * 0.04, -0.52, 0.17 + (i % 2) * 0.03), scale=(0.02,) * 3, parent=root,
+             subdivisions=1, radius=1.0, outline=0)
+    for i in range(7):
+        a = rng.uniform(0, math.pi)
+        prim("ico", f"Coal{i}", "Coal", loc=(-0.45 + math.cos(a) * 0.1, -0.55 + math.sin(a) * 0.05, 0.04), scale=(0.05, 0.05, 0.04),
+             parent=root, subdivisions=1, radius=1.0, outline=0.005)
+    # anvil on a stump, barrels and a tool rack
+    prim("cyl", "Stump", "Bark", loc=(0.48, -0.56, 0.08), scale=(0.08, 0.08, 0.08), parent=root, vertices=12, outline=0.008)
+    prim("cube", "Anvil", "Steel", loc=(0.48, -0.56, 0.2), scale=(0.11, 0.05, 0.04), parent=root, outline=0.008)
+    prim("cone", "AnvilHorn", "Steel", loc=(0.62, -0.56, 0.2), scale=(0.04, 0.035, 0.06), rot=(0, math.pi / 2, 0), parent=root, vertices=8, outline=0.006)
+    for i, (bx, by) in enumerate(((-0.72, -0.25), (-0.78, -0.02))):
+        prim("cyl", f"Barrel{i}", "Wood", loc=(bx, by, 0.11), scale=(0.08, 0.08, 0.11), parent=root, vertices=14, outline=0.008)
+        prim("torus", f"Hoop{i}", "Steel", loc=(bx, by, 0.15), scale=(0.083, 0.083, 0.08), parent=root, major_radius=1.0, minor_radius=0.08,
+             major_segments=16, minor_segments=4, outline=0)
+    prim("cube", "Banner", "TEAM_cloth", loc=(-0.38, -0.44, 0.52), scale=(0.1, 0.012, 0.17), parent=root, outline=0.008)
+    return root
+
+
+# ---------------------------------------------------------------- bridges, trees, rocks
+def build_bridge_deck():
+    """Plank deck spanning X (1.56 m between footings), deck top at z=0, rope rails on both sides."""
+    root = empty("BridgeDeck")
+    rng = np.random.default_rng(80)
+    half, w = 0.74, 0.25
+    for side in (-1, 1):
+        prim("cube", f"Beam{side}", "WoodDark", loc=(0, side * w, -0.035), scale=(half + 0.04, 0.025, 0.03), parent=root, outline=0.008)
+    x = -half
+    i = 0
+    while x < half:
+        pw = rng.uniform(0.075, 0.095)
+        prim("cube", f"Plank{i}", "Plank" if i % 3 else "Wood", loc=(x + pw / 2, rng.uniform(-0.01, 0.01), rng.uniform(-0.006, 0.006)),
+             scale=(pw / 2 - 0.005, w + 0.02, 0.016), rot=(0, 0, rng.uniform(-0.03, 0.03)), parent=root, outline=0.005)
+        x += pw
+        i += 1
+    for side in (-1, 1):
+        posts = [-half + 0.04 + k * (2 * half - 0.08) / 4 for k in range(5)]
+        for k, px in enumerate(posts):
+            prim("cyl", f"Post{side}{k}", "WoodDark", loc=(px, side * (w + 0.03), 0.07), scale=(0.018, 0.018, 0.09), parent=root,
+                 vertices=8, outline=0.005)
+        for k in range(4):   # sagging rope between posts
+            a, b = posts[k], posts[k + 1]
+            for j in range(6):
+                t = (j + 0.5) / 6
+                z = 0.14 - 0.035 * math.sin(t * math.pi)
+                prim("cyl", f"Rope{side}{k}{j}", "Rope", loc=(a + (b - a) * t, side * (w + 0.03), z), scale=(0.007, 0.007, (b - a) / 12 + 0.004),
+                     rot=(0, math.pi / 2, 0), parent=root, vertices=6, outline=0)
+    return root
+
+
+def build_bridge_base():
+    """Stone footings on both banks with dirt ramps; the deck is a separate sprite so a drawbridge can tilt."""
+    root = empty("BridgeBase")
+    rng = np.random.default_rng(81)
+    for side in (-1, 1):
+        ramp = ground_disk(f"Ramp{side}", "Soil", 0.32, 0.36, root, z=0.0, seed=82 + side)
+        ramp.location = (side * 1.0, 0, -0.02)
+        for row in range(3):
+            for k in range(3):
+                prim("cube", f"Foot{side}{row}{k}", "Stone" if (row + k) % 2 else "StoneDark",
+                     loc=(side * 0.8 + rng.uniform(-0.01, 0.01), -0.2 + k * 0.2, -0.05 - row * 0.09),
+                     scale=(0.07, 0.095, 0.043), parent=root, outline=0.006)
+        for k in range(3):
+            r = rng.uniform(0.05, 0.08)
+            prim("ico", f"BankRock{side}{k}", "StoneDark", loc=(side * (0.9 + k * 0.08), rng.uniform(-0.38, 0.38), -0.02), scale=(r, r, r * 0.6),
+                 parent=root, subdivisions=1, radius=1.0, outline=0.006)
+    return root
+
+
+def build_tree(name, seed, dark=False):
+    root = empty(name)
+    rng = np.random.default_rng(seed)
+    mats = ("TreeDarkA", "TreeDarkB", "TreeDarkC") if dark else ("TreeA", "TreeB", "TreeC")
+    prim("cone", "Trunk", "Bark", loc=(0, 0, 0.3), scale=(0.075, 0.075, 0.3), parent=root, vertices=10, radius1=1.0, radius2=0.6, depth=2.0, outline=0.01)
+    for k in range(4):   # roots
+        a = k / 4 * math.tau + rng.uniform(-0.3, 0.3)
+        prim("cone", f"Root{k}", "Bark", loc=(math.cos(a) * 0.07, math.sin(a) * 0.07, 0.02), scale=(0.03, 0.03, 0.05),
+             rot=(0, math.pi / 2 - 0.2, a), parent=root, vertices=6, outline=0.004)
+    cz, R = 0.82 + rng.uniform(-0.05, 0.05), 0.3 + rng.uniform(-0.03, 0.04)
+    blobs = [((0, 0, cz), R, 0)]
+    for k in range(6):
+        a = k / 6 * math.tau + rng.uniform(-0.3, 0.3)
+        up = rng.uniform(-0.3, 0.5)
+        blobs.append(((math.cos(a) * R * 0.62, math.sin(a) * R * 0.62, cz + up * R * 0.5), R * rng.uniform(0.5, 0.66), 1 if up < 0.25 else 2))
+    blobs.append(((-R * 0.15, -R * 0.1, cz + R * 0.6), R * 0.5, 2))
+    for i, (c, r, tone) in enumerate(blobs):
+        ob = prim("ico", f"Leaves{i}", mats[tone], loc=c, scale=(r, r, r * 0.88), parent=root, subdivisions=2, radius=1.0, outline=0.012)
+        dm = ob.modifiers.new("Bumps", "DISPLACE")
+        tex = bpy.data.textures.get("LeafBumps") or bpy.data.textures.new("LeafBumps", "VORONOI")
+        tex.noise_scale = 0.4
+        dm.texture = tex
+        dm.strength = 0.12
+        ob.modifiers.move(len(ob.modifiers) - 1, 0)
+    return root
+
+
+def build_rock(name, seed):
+    root = empty(name)
+    rng = np.random.default_rng(seed)
+    for k in range(rng.integers(2, 4)):
+        r = rng.uniform(0.07, 0.12) * (1.25 if k == 0 else 1)
+        ob = prim("ico", f"Chunk{k}", "Stone" if k % 2 == 0 else "StoneDark", loc=(rng.uniform(-0.08, 0.08), rng.uniform(-0.04, 0.04), r * 0.35),
+                  scale=(r, r * rng.uniform(0.7, 0.95), r * rng.uniform(0.6, 0.85)), rot=(0, 0, rng.uniform(0, 3)), parent=root,
+                  subdivisions=1, radius=1.0, outline=0.008)
+    prim("ico", "Moss", "Moss", loc=(-0.06, 0.02, 0.07), scale=(0.06, 0.05, 0.02), parent=root, subdivisions=1, radius=1.0, outline=0)
+    for k in range(3):   # grass tufts at the foot
+        prim("cone", f"Tuft{k}", "Grass", loc=(rng.uniform(-0.13, 0.13), -0.07, 0.03), scale=(0.012, 0.012, 0.05), rot=(rng.uniform(-0.3, 0.3), 0, 0),
+             parent=root, vertices=4, outline=0)
     return root
 
 
@@ -649,7 +818,24 @@ def main():
     heads = [build_head(False), build_head(True)]
     for i, h in enumerate(heads):
         h.location = (0, 20 + i * 3, 0)
-    log("buildings built")
+    deck, base = build_bridge_deck(), build_bridge_base()
+    deck.location, base.location = (0, -10, 0), (0, -14, 0)
+    trees = [(build_tree(f"Tree{i}", 90 + i), f"tree_{i + 1}") for i in range(3)] + \
+            [(build_tree(f"TreeF{i}", 95 + i, dark=True), f"tree_dark_{i + 1}") for i in range(3)]
+    rocks = [(build_rock(f"Rock{i}", 110 + i), f"rock_{i + 1}") for i in range(3)]
+    for i, (ob, _) in enumerate(trees + rocks):
+        ob.location = (30 + i * 3, 0, 0)
+    log("buildings and scenery built")
+
+    def scenery():
+        for ob, slot, fw, fh, sc, pv in ([(deck, "bridge_deck", 200, 110, 3, (100, 60)), (base, "bridge_base", 260, 130, 3, (130, 65))]
+                                         + [(t, sl, 120, 140, 4, (60, 125)) for t, sl in trees]
+                                         + [(r, sl, 60, 50, 3, (30, 38)) for r, sl in rocks]):
+            def go(ob=ob, slot=slot, fw=fw, fh=fh, sc=sc, pv=pv):
+                setup_render(fw, fh, sc, pv)
+                only(ob)
+                render(os.path.join(PACK, slot + ".png"))
+            at_origin(ob, go)
 
     def at_origin(ob, fn):
         saved = ob.location.copy()
@@ -662,8 +848,9 @@ def main():
 
     if MODE == "test":
         render_soldier(s, frames=[0, 1, 4, 8, 12, 13, 14], mask=False)
-        for f, slot in ((farms[0], "farm_1"), (farms[3], "farm_4"), (towers[0][0], "tower_1"), (towers[3][0], "tower_4"), (forge, "forge_1")):
+        for f, slot in ((farms[0], "farm_1"), (towers[1][0], "tower_2"), (forge, "forge_1")):
             at_origin(f, lambda f=f, slot=slot: render_building(f, slot, mask=False))
+        scenery()
     else:
         render_soldier(s)
         for l, f in enumerate(farms, 1):
@@ -678,6 +865,7 @@ def main():
                 render(os.path.join(PACK, slot + ".png"))
                 masked(lambda: render(os.path.join(PACK, slot + "_team.png")))
             at_origin(h, go)
+        scenery()
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "broccoli_art.blend"))
     files = sorted(f for f in os.listdir(PACK) if f.endswith(".png"))
     log(json.dumps({"ok": True, "seconds": round(time.time() - t0, 1), "files": files}))

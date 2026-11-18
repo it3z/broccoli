@@ -1,5 +1,5 @@
 import { Rng, type Army, type Building, type Match, type SimEvent, type Vec } from '../../../../packages/simulation/src/index';
-import { artAverage, artPackNames, loadArtPack } from './artpack';
+import { artAverage, artFor, artPackNames, loadArtPack } from './artpack';
 import { FALL, SOLDIER, clearBuildingCache, TILT, buildingTop, colorOf, darkOf, drawBuilding, drawPond, drawRock, drawTree, drawWater, emblemShape, makeSoldierSheets, shadow } from './art';
 import { VIS } from './config';
 import { loadTextures, texture } from './textures';
@@ -78,7 +78,7 @@ export class Renderer {
     clearBuildingCache(); this.cacheScale = Math.min(3, Math.max(1, Math.ceil(this.dpr * this.scale * 4) / 4));
     this.paintBackground(match);
     loadTextures(() => this.paintBackground(match));
-    loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(this.sheetScale); clearBuildingCache(); } });
+    loadArtPack(() => { if (artPackNames().length && !this.packed) { this.packed = true; this.sheets = makeSoldierSheets(this.sheetScale); clearBuildingCache(); this.paintBackground(match); } });
     Object.assign(window, { __broccoliArt: artPackNames, __broccoliArtAverage: artAverage });
   }
 
@@ -94,7 +94,7 @@ export class Renderer {
     c.setTransform(1, 0, 0, 1, 0, 0);
     // matte olive ground, slightly desaturated so the armies stand out
     const g = c.createLinearGradient(0, 0, 0, this.bg.height);
-    g.addColorStop(0, forest ? '#3d7446' : '#5d8f50'); g.addColorStop(1, forest ? '#2b5a3a' : '#467844');
+    g.addColorStop(0, forest ? '#2f7a45' : '#4e9c45'); g.addColorStop(1, forest ? '#215f38' : '#3a823b');
     c.fillStyle = g; c.fillRect(0, 0, this.bg.width, this.bg.height);
     this.world(c);
     const rng = new Rng(map.id.length * 977 + map.buildings.length);
@@ -126,7 +126,7 @@ export class Renderer {
     c.fillStyle = forest ? '#8a7350' : '#a98a5c'; edgePath(px0, py0 + drop * 0.22, pw, ph, rad); c.fill();
     edgePath(px0, py0 + drop * 0.22, pw, ph, rad); texture(c, 'rock', 0.6, 0.7);
     const top = c.createLinearGradient(0, py0, 0, py0 + ph);
-    top.addColorStop(0, forest ? '#78a062' : '#a2b46c'); top.addColorStop(1, forest ? '#628a52' : '#8ba05c');   // olive, lower saturation
+    top.addColorStop(0, forest ? '#6fb055' : '#a6d45e'); top.addColorStop(1, forest ? '#58994a' : '#84c14d');   // sunlit spring green
     c.fillStyle = top; edgePath(px0, py0, pw, ph, rad); c.fill();
     texture(c, 'grass', 0.3, 0.9); texture(c, 'leaf', 0.18, 2.2);
     c.strokeStyle = 'rgba(250,255,215,.3)'; c.lineWidth = 3; edgePath(px0 + 3, py0 + 3, pw - 6, ph - 6, rad - 3); c.stroke();
@@ -222,7 +222,7 @@ export class Renderer {
     // side light from the upper left: warm on the lit side, cool in the shade (one light for map and assets)
     c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'soft-light';
     const lg = c.createLinearGradient(0, 0, this.bg.width, this.bg.height);
-    lg.addColorStop(0, 'rgba(255,236,170,.55)'); lg.addColorStop(0.5, 'rgba(255,240,200,0)'); lg.addColorStop(1, 'rgba(30,50,80,.45)');
+    lg.addColorStop(0, 'rgba(255,236,170,.55)'); lg.addColorStop(0.5, 'rgba(255,240,200,0)'); lg.addColorStop(1, 'rgba(30,50,80,.3)');
     c.fillStyle = lg; c.fillRect(0, 0, this.bg.width, this.bg.height); c.restore();
     // foreground foliage and roots framing the edges, kept off the battlefield
     this.world(c);
@@ -255,7 +255,7 @@ export class Renderer {
     // soft vignette pulls the eye to the battlefield
     c.setTransform(1, 0, 0, 1, 0, 0);
     const v = c.createRadialGradient(this.bg.width / 2, this.bg.height / 2, this.bg.height * 0.45, this.bg.width / 2, this.bg.height / 2, this.bg.width * 0.75);
-    v.addColorStop(0, 'rgba(0,20,10,0)'); v.addColorStop(1, 'rgba(0,20,10,.38)');
+    v.addColorStop(0, 'rgba(0,20,10,0)'); v.addColorStop(1, 'rgba(0,20,10,.26)');
     c.fillStyle = v; c.fillRect(0, 0, this.bg.width, this.bg.height);
   }
 
@@ -720,9 +720,9 @@ export class Renderer {
     c.fillStyle = '#8b7046'; band(20, 1.2); c.fill(); texture(c, 'dirt', 0.6, 0.8);
     c.fillStyle = '#cdb67f'; band(11, 1); c.fill(); texture(c, 'dirt', 0.4, 1.2);
     c.fillStyle = '#a8955f'; band(3, 0.6); c.fill();
-    c.fillStyle = '#9fd8d6'; band(-1, 0.4); c.fill();          // clear shallows
-    c.fillStyle = '#5bb0d4'; band(-11, 0.3); c.fill();
-    c.fillStyle = '#3a8fc0'; band(-24, 0.2); c.fill();          // deep middle
+    c.fillStyle = '#8eeadf'; band(-1, 0.4); c.fill();          // clear turquoise shallows
+    c.fillStyle = '#3cc7d6'; band(-11, 0.3); c.fill();
+    c.fillStyle = '#209ec8'; band(-24, 0.2); c.fill();          // deep middle
     c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 2; c.lineCap = 'round';
     for (let i = 3; i < pts.length - 3; i += 5) { const p = pts[i], q = pts[i + 2]; c.beginPath(); c.moveTo(p.x - 6, p.y * TILT); c.lineTo(q.x - 6, q.y * TILT); c.stroke(); }
     const bridges = m.map.bridges ?? [];
@@ -738,6 +738,24 @@ export class Renderer {
   /** A crossing you can read at a glance: stone footings on both banks, dirt ramps, a plank deck and rope rails. */
   private bridgeDeck(c: Ctx, x: number, y: number, down: number, gate: boolean): void {
     const half = 78, w = 52, py = y * TILT, lift = (1 - down) * 30;
+    const base = artFor('bridge_base', -1), deck = artFor('bridge_deck', -1);
+    if (base && deck) {   // painted bridge: footings + ramps (260x130, pivot centre) and a plank deck (200x110, pivot (100, 60))
+      c.save(); c.translate(x, py);
+      c.drawImage(base, -130, -65, 260, 130);
+      c.fillStyle = 'rgba(10,50,70,.28)'; c.fillRect(-half + 8, 12, half * 2 - 16, w * TILT * 0.6);   // shadow on the water
+      c.save(); c.translate(0, -lift);
+      if (gate && down < 1) { c.translate(-half, 0); c.rotate(-(1 - down) * 0.5); c.translate(half, 0); }
+      c.drawImage(deck, -100, -60, 200, 110);
+      c.restore();
+      if (gate) {
+        c.fillStyle = '#6e4b2a'; for (const s of [-1, 1]) c.fillRect(-half - 4, s * 16 - 26, 8, 30);
+        c.strokeStyle = '#3b3b40'; c.lineWidth = 1.8; c.setLineDash([3, 2]);
+        for (const s of [-1, 1]) { c.beginPath(); c.moveTo(-half, s * 16 - 24); c.lineTo(half - 10, s * 10 - 4 - lift); c.stroke(); }
+        c.setLineDash([]);
+      }
+      c.restore();
+      return;
+    }
     c.save(); c.translate(x, py);
     for (const s of [-1, 1]) {                                     // dirt ramps leading onto the bridge
       c.fillStyle = '#c9ad74'; c.beginPath(); c.ellipse(s * (half + 10), 4, 26, w * TILT * 0.62, 0, 0, Math.PI * 2); c.fill();

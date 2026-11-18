@@ -33,3 +33,5 @@ Blender و Material Maker و SpriteSheetMaker و Free Texture Packer و Tiled و
 
 ## أصول Blender (v0.8.0)
 كل ملفات `packages/content/art/*.png` أصلية: صُنعت بـ `tools/blender/broccoli_art.py` من أشكال Blender الأساسية (لا نماذج أو خامات خارجية)، رُندرت بـ Blender 5.3 EEVEE على جهاز المستخدم في 2026‑11‑17، ثم صُغّرت بـ `scripts/import-art.sh`.
+
+v0.9.0: أُضيفت `bridge_base`, `bridge_deck`, `tree_1..3`, `tree_dark_1..3`, `rock_1..3` بنفس الطريقة (أصلية، Blender 5.3، 2026‑11‑18).

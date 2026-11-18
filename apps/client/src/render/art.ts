@@ -438,8 +438,22 @@ export function drawPond(c: Ctx, x: number, y: number, r: number) {
   c.fillStyle = '#ff9ec4'; circ(c, x + r * 0.42, py - ry * 0.12 - 2, 2.6); c.fill();
 }
 
+/** Pick one of a slot's numbered variants by position, so the same spot always gets the same picture. */
+const variant = (id: string, x: number, y: number, n: number) => artFor(`${id}_${1 + (Math.abs(Math.round(x * 7 + y * 13)) % n)}`, -1);
+
 export function drawRock(c: Ctx, x: number, y: number, r: number) {
   const py = y * TILT;
+  const art = variant('rock', x, y, 3);
+  if (art && r > 18) {   // a big obstacle reads better as a cluster of rocks than as one swollen boulder
+    for (const [dx, dy, k] of [[-0.35, -0.1, 0.55], [0.4, -0.2, 0.45], [0.05, 0.25, 0.7]] as const) drawRock(c, x + dx * r, y + dy * r, r * k);
+    return;
+  }
+  if (art) {   // painted rock: 60x50 slot, pivot (30, 38), drawn for r = 12
+    const k = r / 12;
+    shadow(c, x + 4 * k, py + 3 * k, 22 * k, 6 * k, 0.22);
+    c.drawImage(art, x - 30 * k, py - 38 * k, 60 * k, 50 * k);
+    return;
+  }
   shadow(c, x + 6, py + r * 0.36, r * 1.1, r * 0.4, 0.22);
   shadow(c, x, py + r * 0.32, r * 0.85, r * 0.22, 0.3);
   const chunk = (bx: number, by: number, br: number) => {
@@ -458,6 +472,8 @@ export function drawRock(c: Ctx, x: number, y: number, r: number) {
 export function drawTree(c: Ctx, x: number, y: number, s: number, dark: boolean) {
   shadow(c, x + 8 * s, y + 3, 30 * s, 10 * s, 0.2);
   shadow(c, x, y + 1, 11 * s, 4 * s, 0.34);                    // contact shadow at the trunk
+  const art = variant(dark ? 'tree_dark' : 'tree', x, y, 3);
+  if (art) { c.drawImage(art, x - 60 * s, y - 125 * s, 120 * s, 140 * s); return; }   // painted tree: 120x140 slot, pivot (60, 125)
   c.fillStyle = '#7a5632'; c.beginPath(); c.moveTo(x - 7 * s, y + 1); c.lineTo(x - 4.5 * s, y - 32 * s); c.lineTo(x + 4.5 * s, y - 32 * s); c.lineTo(x + 7 * s, y + 1); c.closePath(); c.fill();
   c.strokeStyle = 'rgba(60,38,18,.55)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x - 1.5 * s, y - 2); c.lineTo(x - 1 * s, y - 28 * s); c.moveTo(x + 2.5 * s, y - 6); c.lineTo(x + 2 * s, y - 24 * s); c.stroke();
   const cols = dark ? ['#1d5230', '#2a6b3a', '#3c8448'] : ['#356f3a', '#4b8a47', '#6aa657'];
